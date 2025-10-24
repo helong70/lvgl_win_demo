@@ -288,6 +288,7 @@ static void ui_init(void)
     /* Set a light gray background to make elements visible */
     lv_obj_set_style_bg_color(screen, lv_color_hex(0xE8E8E8), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(screen, 6, 0);
     /* Disable any scrolling on the root screen to prevent the whole UI
      * (including title bar) from being panned/dragged out of view.
      */
@@ -297,8 +298,9 @@ static void ui_init(void)
     /* Titlebar: create a thin bar at the top implemented with LVGL */
     const int title_h = 36; /* logical pixels in LVGL coords */
     lv_obj_t * title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, g_width+2, title_h);
-    lv_obj_set_pos(title_bar, 0, -2);
+    lv_obj_set_size(title_bar, g_width+4, title_h);
+    lv_obj_set_pos(title_bar, 0, 0);
+    lv_obj_align(title_bar, LV_ALIGN_TOP_MID, 0, -2);
     lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
     lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
     /* Disable internal scrolling for the title bar so its children cannot be
