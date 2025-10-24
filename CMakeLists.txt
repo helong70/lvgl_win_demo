@@ -32,11 +32,12 @@ endif()
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} 
-    lvgl 
-    user32
-    gdi32
-    winmm
-    opengl32
+    PRIVATE lvgl 
+    PRIVATE user32
+    PRIVATE gdi32
+    PRIVATE winmm
+    PRIVATE opengl32
+    PRIVATE gdiplus
 )
 
 # Set executable properties

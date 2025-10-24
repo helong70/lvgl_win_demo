@@ -10,6 +10,13 @@
 #include <GL/gl.h>
 #endif
 
+#ifndef GL_MULTISAMPLE
+#define GL_MULTISAMPLE 0x809D
+#endif
+#ifndef GL_SAMPLES
+#define GL_SAMPLES 0x80A9
+#endif
+
 /***********************
  *   STATIC VARIABLES
  ***********************/
@@ -246,8 +253,8 @@ static void hal_init(void)
         wglMakeCurrent(g_hdc, g_hglrc);
         glGenTextures(1, &g_tex);
         glBindTexture(GL_TEXTURE_2D, g_tex);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_width, g_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_framebuf);
     }
 #endif
@@ -331,6 +338,8 @@ static void ui_init(void)
     lv_obj_center(cb_label);
     /* Round the close button for consistency */
     lv_obj_set_style_radius(close_btn, 8, 0);
+    /* Remove shadow */
+    lv_obj_set_style_shadow_width(close_btn, 0, 0);
 
     /* Content container sits below the title bar and contains the app UI */
     lv_obj_t * content = lv_obj_create(screen);
@@ -613,6 +622,9 @@ static bool init_opengl_window(void)
     pfd.cColorBits = 32;
     pfd.cAlphaBits = 8;
 
+    // 更新像素格式描述符以支持多重采样
+    pfd.dwFlags |= PFD_SUPPORT_COMPOSITION;
+
     int pf = ChoosePixelFormat(g_hdc, &pfd);
     if (!pf) {
         printf("ChoosePixelFormat failed\n");
@@ -633,6 +645,21 @@ static bool init_opengl_window(void)
         printf("wglMakeCurrent failed\n");
         return false;
     }
+
+    // 启用多重采样以减少锯齿
+    glEnable(GL_MULTISAMPLE);
+
+    // 改进纹理过滤模式
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // 启用全局抗锯齿
+    glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST);
+
+    // 检查多重采样状态
+    GLint samples = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);
+    printf("Number of samples: %d\n", samples);
 
     ShowWindow(g_hwnd, SW_SHOW);
     UpdateWindow(g_hwnd);
