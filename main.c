@@ -36,7 +36,20 @@ static lv_indev_t * indev_keyboard;
 static uint16_t buf1[800 * 600 / 10];
 static uint16_t buf2[800 * 600 / 10];
 static lv_indev_data_t mouse_data;
-static lv_indev_data_t keyboard_data;
+
+/* Enhanced keyboard input system */
+#define KEYBOARD_QUEUE_SIZE 16
+typedef struct {
+    uint32_t key;
+    lv_indev_state_t state;
+    DWORD timestamp;
+} keyboard_event_t;
+
+static keyboard_event_t keyboard_queue[KEYBOARD_QUEUE_SIZE];
+static int keyboard_queue_head = 0;
+static int keyboard_queue_tail = 0;
+static keyboard_event_t current_keyboard_data;
+static DWORD last_key_time = 0;
 
 #if USE_OPENGL
 /* OpenGL / windowing globals */
@@ -74,6 +87,8 @@ static void textarea2_event_cb(lv_event_t * e);
 static void min_btn_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
+static void keyboard_queue_push(uint32_t key, lv_indev_state_t state);
+static bool keyboard_queue_pop(keyboard_event_t* event);
 static void simulate_mouse_click(int x, int y);
 #if USE_OPENGL
 /* Titlebar callbacks/prototypes */
@@ -201,7 +216,7 @@ int main(void)
             DispatchMessage(&msg);
         }
         lv_timer_handler();
-        Sleep(5);
+        Sleep(1); /* Reduced from 5ms to 1ms for better input responsiveness */
     }
     /* cleanup */
     cleanup_opengl();
@@ -293,9 +308,14 @@ static void hal_init(void)
     mouse_data.point.y = 0;
     mouse_data.state = LV_INDEV_STATE_RELEASED;
     
-    /* Initialize keyboard data */
-    keyboard_data.key = 0;
-    keyboard_data.state = LV_INDEV_STATE_RELEASED;
+    /* Initialize keyboard data and queue */
+    memset(keyboard_queue, 0, sizeof(keyboard_queue));
+    keyboard_queue_head = 0;
+    keyboard_queue_tail = 0;
+    current_keyboard_data.key = 0;
+    current_keyboard_data.state = LV_INDEV_STATE_RELEASED;
+    current_keyboard_data.timestamp = 0;
+    last_key_time = 0;
     
     /* Create mouse input device */
     indev_mouse = lv_indev_create();
@@ -400,10 +420,10 @@ static void ui_init(void)
     lv_obj_set_scroll_dir(content, LV_DIR_NONE);
     lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
 
-    /* Create a simple button inside content (centered within content) */
+    /* Create a simple button inside content (top-left area) */
     lv_obj_t * btn = lv_btn_create(content);
-    lv_obj_set_size(btn, 150, 60);
-    lv_obj_center(btn);
+    lv_obj_set_size(btn, 120, 50);
+    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20, 20);
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
@@ -413,18 +433,18 @@ static void ui_init(void)
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_radius(btn, 12, 0);
 
-    /* Slider below the button (in content) */
+    /* Slider in top-right area (in content) */
     lv_obj_t * slider = lv_slider_create(content);
-    lv_obj_set_size(slider, 250, 30);
-    lv_obj_align_to(slider, btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 40);
+    lv_obj_set_size(slider, 200, 25);
+    lv_obj_align(slider, LV_ALIGN_TOP_RIGHT, -20, 20);
     lv_slider_set_value(slider, 50, LV_ANIM_OFF);
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Dropdown below the slider */
+    /* Dropdown in center area */
     lv_obj_t * dropdown = lv_dropdown_create(content);
     lv_dropdown_set_options(dropdown, "Option 1\nOption 2\nOption 3\nOption 4\nOption 5");
-    lv_obj_set_size(dropdown, 200, 40);
-    lv_obj_align_to(dropdown, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
+    lv_obj_set_size(dropdown, 180, 40);
+    lv_obj_align(dropdown, LV_ALIGN_CENTER, 0, -50);
     lv_obj_add_event_cb(dropdown, dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     
     /* Style the dropdown */
@@ -433,10 +453,10 @@ static void ui_init(void)
     lv_obj_set_style_border_color(dropdown, lv_color_hex(0xCCCCCC), 0);
     lv_obj_set_style_border_width(dropdown, 1, 0);
 
-    /* First text area (username input) - left side */
+    /* First text area (username input) - bottom left area */
     lv_obj_t * textarea = lv_textarea_create(content);
-    lv_obj_set_size(textarea, 135, 50); /* Narrower width to fit side by side */
-    lv_obj_align_to(textarea, dropdown, LV_ALIGN_OUT_BOTTOM_LEFT, 5, 30); /* Align to left with small margin */
+    lv_obj_set_size(textarea, 280, 45); /* Wider for better UX */
+    lv_obj_align(textarea, LV_ALIGN_BOTTOM_LEFT, 20, -80); /* Bottom area with margin */
     lv_textarea_set_placeholder_text(textarea, "Username...");
     lv_textarea_set_text(textarea, "");
     lv_obj_add_event_cb(textarea, textarea_event_cb, LV_EVENT_ALL, NULL);
@@ -460,10 +480,10 @@ static void ui_init(void)
     /* Set textarea as focused by default so it can receive keyboard input */
     lv_obj_add_state(textarea, LV_STATE_FOCUSED);
 
-    /* Second text area (password input) - right side of first textarea */
+    /* Second text area (password input) - below first textarea */
     lv_obj_t * textarea2 = lv_textarea_create(content);
-    lv_obj_set_size(textarea2, 135, 50); /* Same width as first textarea */
-    lv_obj_align_to(textarea2, textarea, LV_ALIGN_OUT_RIGHT_MID, 10, 0); /* Right of first textarea with gap */
+    lv_obj_set_size(textarea2, 280, 45); /* Same width as first textarea */
+    lv_obj_align_to(textarea2, textarea, LV_ALIGN_OUT_BOTTOM_MID, 0, 10); /* Below first textarea */
     lv_textarea_set_placeholder_text(textarea2, "Password...");
     lv_textarea_set_text(textarea2, "");
     lv_textarea_set_password_mode(textarea2, true); /* Enable password mode */
@@ -483,11 +503,12 @@ static void ui_init(void)
     /* Add second textarea to keyboard group */
     lv_group_add_obj(keyboard_group, textarea2);
 
-    /* Status label under both textareas (centered) */
+    /* Status label in bottom-right corner */
     lv_obj_t * status = lv_label_create(content);
-    lv_label_set_text(status, "Username & Password fields side by side. Tab to switch, type to input.");
-    lv_obj_align_to(status, textarea, LV_ALIGN_OUT_BOTTOM_MID, 70, 20); /* Center between both textareas */
+    lv_label_set_text(status, "UI Layout: Modern arrangement\nKeyboard navigation enabled");
+    lv_obj_align(status, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
     lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
 
     /* Force screen refresh */
     lv_obj_invalidate(screen);
@@ -633,15 +654,82 @@ static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
     data->state = mouse_data.state;
 }
 
+static void keyboard_queue_push(uint32_t key, lv_indev_state_t state)
+{
+    DWORD current_time = GetTickCount();
+    
+    /* Calculate next position */
+    int next_head = (keyboard_queue_head + 1) % KEYBOARD_QUEUE_SIZE;
+    
+    /* Check if queue is full */
+    if (next_head == keyboard_queue_tail) {
+        /* Queue is full, skip oldest event */
+        keyboard_queue_tail = (keyboard_queue_tail + 1) % KEYBOARD_QUEUE_SIZE;
+        printf("Keyboard queue overflow, dropping oldest event\n");
+    }
+    
+    /* Add new event */
+    keyboard_queue[keyboard_queue_head].key = key;
+    keyboard_queue[keyboard_queue_head].state = state;
+    keyboard_queue[keyboard_queue_head].timestamp = current_time;
+    
+    keyboard_queue_head = next_head;
+    
+    printf("Keyboard event queued: key=0x%X, state=%d, queue_size=%d\n", 
+           key, state, (keyboard_queue_head - keyboard_queue_tail + KEYBOARD_QUEUE_SIZE) % KEYBOARD_QUEUE_SIZE);
+}
+
+static bool keyboard_queue_pop(keyboard_event_t* event)
+{
+    /* Check if queue is empty */
+    if (keyboard_queue_head == keyboard_queue_tail) {
+        return false;
+    }
+    
+    /* Get event from tail */
+    *event = keyboard_queue[keyboard_queue_tail];
+    keyboard_queue_tail = (keyboard_queue_tail + 1) % KEYBOARD_QUEUE_SIZE;
+    
+    return true;
+}
+
 static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
-    /* Copy the current keyboard data */
-    data->key = keyboard_data.key;
-    data->state = keyboard_data.state;
+    static DWORD last_read_time = 0;
+    DWORD current_time = GetTickCount();
     
-    /* Clear the key after reading to avoid repeated events */
-    if (keyboard_data.state == LV_INDEV_STATE_RELEASED) {
-        keyboard_data.key = 0;
+    /* More aggressive queue processing for faster response */
+    if (current_keyboard_data.state == LV_INDEV_STATE_RELEASED || 
+        (current_time - last_read_time) > 15) { /* 15ms minimum between key events for responsive typing */
+        
+        keyboard_event_t next_event;
+        if (keyboard_queue_pop(&next_event)) {
+            current_keyboard_data = next_event;
+            last_read_time = current_time;
+            printf("Processing keyboard event: key=0x%X, state=%d\n", 
+                   next_event.key, next_event.state);
+        }
+    }
+    
+    /* Process additional events if queue has multiple items to reduce latency */
+    if (current_keyboard_data.state == LV_INDEV_STATE_RELEASED) {
+        keyboard_event_t next_event;
+        if (keyboard_queue_pop(&next_event)) {
+            current_keyboard_data = next_event;
+            last_read_time = current_time;
+            printf("Fast-processing additional keyboard event: key=0x%X, state=%d\n", 
+                   next_event.key, next_event.state);
+        }
+    }
+    
+    /* Copy current keyboard data to LVGL */
+    data->key = current_keyboard_data.key;
+    data->state = current_keyboard_data.state;
+    
+    /* Auto-release pressed keys after a short delay to ensure LVGL processes them */
+    if (current_keyboard_data.state == LV_INDEV_STATE_PRESSED && 
+        (current_time - current_keyboard_data.timestamp) > 10) { /* 10ms press duration for faster response */
+        current_keyboard_data.state = LV_INDEV_STATE_RELEASED;
     }
 }
 
@@ -794,6 +882,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             uint32_t key = (uint32_t)wParam;
+            DWORD current_time = GetTickCount();
+            
+            /* Anti-bounce: ignore if same key pressed too quickly */
+            if (current_time - last_key_time < 5) { /* 5ms debounce - reduced for faster typing */
+                return 0;
+            }
+            last_key_time = current_time;
+            
             printf("Key pressed: 0x%X (%d)\n", key, key);
             
             /* Convert Windows virtual key codes to LVGL key codes */
@@ -811,31 +907,67 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case VK_HOME:     lv_key = LV_KEY_HOME; break;
                 case VK_END:      lv_key = LV_KEY_END; break;
                 default:
-                    /* For printable characters */
-                    if (key >= 32 && key <= 126) {
-                        lv_key = key;
+                    /* Process printable characters (letters, numbers, symbols) */
+                    if ((key >= 'A' && key <= 'Z') || (key >= 0x30 && key <= 0x39) || 
+                        key == VK_SPACE || (key >= VK_OEM_1 && key <= VK_OEM_3) || 
+                        (key >= VK_OEM_4 && key <= VK_OEM_8)) {
+                        /* Convert to lowercase for letters, use as-is for others */
+                        if (key >= 'A' && key <= 'Z') {
+                            /* Check if Shift is pressed */
+                            bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                            lv_key = shift_pressed ? key : (key + 32); /* Convert to lowercase if no shift */
+                        } else if (key >= 0x30 && key <= 0x39) { /* VK_0 to VK_9 */
+                            /* Check if Shift is pressed for symbols on number keys */
+                            bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                            if (shift_pressed) {
+                                /* Handle shifted number keys: )!@#$%^&*( */
+                                char shifted_nums[] = ")!@#$%^&*(";
+                                lv_key = shifted_nums[key - 0x30];
+                            } else {
+                                lv_key = key; /* Direct number key */
+                            }
+                        } else if (key == VK_SPACE) {
+                            lv_key = ' ';
+                        }
+                        /* For other keys, let WM_CHAR handle them */
                     }
                     break;
             }
             
             if (lv_key != 0) {
-                keyboard_data.key = lv_key;
-                keyboard_data.state = LV_INDEV_STATE_PRESSED;
+                printf("WM_KEYDOWN processing: VK=0x%X, lv_key=0x%X ('%c')\n", key, lv_key, (char)lv_key);
+                keyboard_queue_push(lv_key, LV_INDEV_STATE_PRESSED);
+            } else {
+                printf("WM_KEYDOWN ignored: VK=0x%X\n", key);
             }
             return 0;
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
-            keyboard_data.state = LV_INDEV_STATE_RELEASED;
+            /* For most keys, we don't need to track key-up events for LVGL text input */
             return 0;
         }
         case WM_CHAR: {
-            /* Handle character input for text fields */
+            /* Handle special character input that wasn't handled in WM_KEYDOWN */
             uint32_t character = (uint32_t)wParam;
-            if (character >= 32 && character <= 126) {
-                printf("Character input: '%c' (0x%X)\n", (char)character, character);
-                keyboard_data.key = character;
-                keyboard_data.state = LV_INDEV_STATE_PRESSED;
+            DWORD current_time = GetTickCount();
+            
+            /* Only process characters not already handled in WM_KEYDOWN */
+            /* Skip letters (a-z, A-Z), numbers (0-9), and space as they're handled in WM_KEYDOWN */
+            bool already_handled = ((character >= 'a' && character <= 'z') || 
+                                   (character >= 'A' && character <= 'Z') || 
+                                   (character >= '0' && character <= '9') || 
+                                   character == ' ');
+            
+            if (!already_handled && character >= 32 && character <= 126) {
+                /* Anti-bounce for character input */
+                if (current_time - last_key_time >= 2) { /* 2ms debounce for chars - very responsive */
+                    printf("WM_CHAR processing special character: '%c' (0x%X)\n", (char)character, character);
+                    keyboard_queue_push(character, LV_INDEV_STATE_PRESSED);
+                    last_key_time = current_time;
+                }
+            } else {
+                printf("WM_CHAR ignored (already handled): '%c' (0x%X)\n", (char)character, character);
             }
             return 0;
         }
