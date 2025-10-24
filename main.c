@@ -448,24 +448,42 @@ static void close_btn_event_cb(lv_event_t * e)
 static void titlebar_event_cb(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
+    /* Implement capture-based dragging: when the titlebar is pressed we
+     * capture the mouse (SetCapture) and track the global cursor position
+     * with GetCursorPos while LV_EVENT_PRESSING events arrive. This
+     * guarantees we keep receiving mouse moves even if the cursor leaves
+     * the client area. On release we call ReleaseCapture.
+     */
     if (code == LV_EVENT_PRESSED) {
-        g_title_dragging = true;
-        g_drag_start_x = mouse_data.point.x;
-        g_drag_start_y = mouse_data.point.y;
-        RECT rc;
-        if (g_hwnd && GetWindowRect(g_hwnd, &rc)) {
-            g_win_start_x = rc.left;
-            g_win_start_y = rc.top;
+        if (g_hwnd) {
+            POINT pt;
+            RECT rc;
+            /* Record global cursor position and window origin */
+            if (GetCursorPos(&pt) && GetWindowRect(g_hwnd, &rc)) {
+                g_title_dragging = true;
+                g_drag_start_x = pt.x;
+                g_drag_start_y = pt.y;
+                g_win_start_x = rc.left;
+                g_win_start_y = rc.top;
+                /* Ensure the window receives mouse messages until release */
+                SetCapture(g_hwnd);
+            }
         }
     } else if (code == LV_EVENT_PRESSING) {
         if (g_title_dragging && g_hwnd) {
-            int dx = mouse_data.point.x - g_drag_start_x;
-            int dy = mouse_data.point.y - g_drag_start_y;
-            /* Allow both horizontal and vertical movement (restore original behavior) */
-            SetWindowPos(g_hwnd, NULL, g_win_start_x + dx, g_win_start_y + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            POINT pt;
+            if (GetCursorPos(&pt)) {
+                int dx = pt.x - g_drag_start_x;
+                int dy = pt.y - g_drag_start_y;
+                SetWindowPos(g_hwnd, NULL, g_win_start_x + dx, g_win_start_y + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
         }
     } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        g_title_dragging = false;
+        if (g_title_dragging) {
+            g_title_dragging = false;
+            /* Release capture in case we set it earlier */
+            ReleaseCapture();
+        }
     }
 }
 
