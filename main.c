@@ -288,12 +288,17 @@ static void ui_init(void)
     /* Set a light gray background to make elements visible */
     lv_obj_set_style_bg_color(screen, lv_color_hex(0xE8E8E8), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-
+    /* Disable any scrolling on the root screen to prevent the whole UI
+     * (including title bar) from being panned/dragged out of view.
+     */
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(screen, LV_DIR_NONE);
+    lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
     /* Titlebar: create a thin bar at the top implemented with LVGL */
     const int title_h = 36; /* logical pixels in LVGL coords */
     lv_obj_t * title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, g_width, title_h);
-    lv_obj_set_pos(title_bar, 0, -1);
+    lv_obj_set_size(title_bar, g_width+2, title_h);
+    lv_obj_set_pos(title_bar, 0, -2);
     lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
     lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
     /* Disable internal scrolling for the title bar so its children cannot be
@@ -304,6 +309,9 @@ static void ui_init(void)
     lv_obj_set_scroll_dir(title_bar, LV_DIR_NONE);
     lv_obj_set_scrollbar_mode(title_bar, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_event_cb(title_bar, titlebar_event_cb, LV_EVENT_ALL, NULL);
+
+    /* Slight rounding for the title bar corners to match UI aesthetic */
+    lv_obj_set_style_radius(title_bar, 6, 0);
 
     /* Title text */
     lv_obj_t * title_label = lv_label_create(title_bar);
@@ -319,12 +327,23 @@ static void ui_init(void)
     lv_obj_t * cb_label = lv_label_create(close_btn);
     lv_label_set_text(cb_label, "X");
     lv_obj_center(cb_label);
+    /* Round the close button for consistency */
+    lv_obj_set_style_radius(close_btn, 8, 0);
 
     /* Content container sits below the title bar and contains the app UI */
     lv_obj_t * content = lv_obj_create(screen);
     lv_obj_set_size(content, g_width, g_height - title_h);
     lv_obj_set_pos(content, 0, title_h);
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+
+    /* Rounded corners for content area for a modern look */
+    lv_obj_set_style_radius(content, 12, 0);
+    lv_obj_set_style_clip_corner(content, true, 0); /* clip children to rounded corners */
+
+    /* Disable scrolling on the main content so users cannot swipe left/right */
+    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(content, LV_DIR_NONE);
+    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
 
     /* Create a simple button inside content (centered within content) */
     lv_obj_t * btn = lv_btn_create(content);
@@ -337,6 +356,7 @@ static void ui_init(void)
     lv_label_set_text(label, "Click Me!");
     lv_obj_center(label);
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_radius(btn, 12, 0);
 
     /* Slider below the button (in content) */
     lv_obj_t * slider = lv_slider_create(content);
