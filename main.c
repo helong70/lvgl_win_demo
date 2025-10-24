@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
+#include <stdlib.h>
+#include <string.h>
 #if USE_OPENGL
 #include <GL/gl.h>
 #endif
@@ -34,6 +36,7 @@ static int g_height = 600;
 static void hal_init(void);
 static void ui_init(void);
 static void btn_event_cb(lv_event_t * e);
+static void slider_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void simulate_mouse_click(int x, int y);
 #if USE_OPENGL
@@ -59,12 +62,42 @@ static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_
         }
     }
 
-    /* Update GL texture subimage */
+    /* Update GL texture subimage. Some drivers / old OpenGL implementations
+     * may not support GL_UNPACK_ROW_LENGTH reliably. To be robust we copy
+     * the subregion into a contiguous temporary buffer and upload that.
+     */
     if (g_hglrc && g_tex) {
         wglMakeCurrent(g_hdc, g_hglrc);
         glBindTexture(GL_TEXTURE_2D, g_tex);
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, area->x1, area->y1, w, h, GL_RGBA, GL_UNSIGNED_BYTE, &g_framebuf[area->y1 * g_width + area->x1]);
+
+        /* If the update region already matches the framebuffer row stride
+         * we can upload directly, otherwise copy into a temporary buffer. */
+        if (w == g_width) {
+            /* contiguous in memory, upload directly */
+            glTexSubImage2D(GL_TEXTURE_2D, 0, area->x1, area->y1, w, h, GL_RGBA, GL_UNSIGNED_BYTE, &g_framebuf[area->y1 * g_width + area->x1]);
+        } else {
+            /* allocate a contiguous temporary buffer for the subregion */
+            size_t row_bytes = (size_t)w * 4;
+            size_t total = row_bytes * (size_t)h;
+            uint8_t * tmp = (uint8_t*)malloc(total);
+            if (tmp) {
+                for (int yy = 0; yy < h; ++yy) {
+                    uint32_t * src = &g_framebuf[(area->y1 + yy) * g_width + area->x1];
+                    uint8_t * dst = tmp + (size_t)yy * row_bytes;
+                    /* copy row as 4 bytes per pixel (RGBA8888) */
+                    memcpy(dst, src, row_bytes);
+                }
+                glTexSubImage2D(GL_TEXTURE_2D, 0, area->x1, area->y1, w, h, GL_RGBA, GL_UNSIGNED_BYTE, tmp);
+                free(tmp);
+            } else {
+                /* Fallback: upload row-by-row (slower) */
+                for (int yy = 0; yy < h; ++yy) {
+                    uint32_t * src = &g_framebuf[(area->y1 + yy) * g_width + area->x1];
+                    glTexSubImage2D(GL_TEXTURE_2D, 0, area->x1, area->y1 + yy, w, 1, GL_RGBA, GL_UNSIGNED_BYTE, src);
+                }
+            }
+        }
         /* draw to window */
         glViewport(0, 0, g_width, g_height);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -258,6 +291,8 @@ static void ui_init(void)
     lv_obj_set_size(slider, 250, 30);
     lv_obj_align_to(slider, btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 40);
     lv_slider_set_value(slider, 50, LV_ANIM_OFF);
+    /* add an event callback to keep styles consistent when value changes */
+    lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     /* Create a title above the button */
     lv_obj_t * title = lv_label_create(screen);
@@ -293,6 +328,18 @@ static void btn_event_cb(lv_event_t * e)
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
         printf("*** BUTTON RESET ***\n");
     }
+    /* Force a redraw of the button to avoid visual artifacts */
+    lv_obj_invalidate(btn);
+}
+
+static void slider_event_cb(lv_event_t * e)
+{
+    lv_obj_t * slider = lv_event_get_target(e);
+    int32_t v = lv_slider_get_value(slider);
+    /* Keep slider visuals consistent: invalidate the slider and parent screen */
+    lv_obj_invalidate(slider);
+    lv_obj_invalidate(lv_obj_get_parent(slider));
+    printf("Slider changed: %d\n", (int)v);
 }
 
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
