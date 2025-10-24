@@ -1,176 +1,174 @@
 # LVGL Windows Demo
 
-这是一个简单的LVGL Windows移植示例，使用LVGL内置的Windows驱动。
+一个在Windows平台上运行的LVGL图形界面演示项目，使用OpenGL硬件加速渲染，具有现代化的无边框窗口设计。
 
-## 依赖要求
+## 🚀 功能特性
 
-### 必要的依赖：
-1. **CMake** (版本 3.16 或更高)
-   - 下载: https://cmake.org/download/
+### 核心功能
+- ✅ **OpenGL硬件加速渲染** - 使用OpenGL纹理上传和GPU渲染
+- ✅ **无边框现代化窗口** - 自定义标题栏，圆角设计
+- ✅ **流畅的窗口拖动** - 使用Windows原生拖动机制
+- ✅ **DPI感知缩放** - 自动适应高DPI显示器
+- ✅ **完整的鼠标输入** - 支持点击、拖动等交互
 
-2. **Microsoft Visual Studio** 或 **Visual Studio Build Tools**
-   - Visual Studio 2019 或 2022 (Community版本免费)
-   - 需要安装"使用C++的桌面开发"工作负载
-   - 或者只安装Visual Studio Build Tools
+### UI组件
+- 📱 **自定义标题栏** - 带拖动功能的深色标题栏
+- 🔘 **关闭按钮** - 带淡出动画的关闭效果
+- 🔹 **最小化按钮** - 一键最小化到任务栏
+- 🎛️ **交互式按钮** - 可点击的按钮组件
+- 🎚️ **滑块控件** - 数值调节滑块
+- 📝 **下拉选择框** - 多选项下拉菜单
 
-### 可选编译器：
-- **MinGW-w64** (如果不使用Visual Studio)
-- **MSYS2** (包含MinGW-w64)
+### 视觉效果
+- 🎨 **圆角设计** - 窗口和UI元素统一圆角风格
+- 🌈 **现代化配色** - 深色标题栏配浅色内容区
+- ✨ **平滑动画** - 按钮点击和窗口操作动画
+- 🖼️ **抗锯齿渲染** - OpenGL多重采样抗锯齿
 
-## 编译步骤
+## 🛠️ 技术栈
 
-### 方法 1: 使用Ninja构建 (推荐，最快)
+- **UI框架**: LVGL 9.x
+- **图形API**: OpenGL
+- **平台**: Windows (Win32 API)
+- **编译器**: MinGW-w64 GCC
+- **构建系统**: CMake + Ninja
+- **绘图**: GDI+ (圆角效果)
 
-```cmd
-.\build_ninja.bat
+## 📋 系统要求
+
+- Windows 10 或更高版本
+- 支持OpenGL 2.0+ 的显卡
+- MinGW-w64 工具链
+- CMake 3.16+
+- Ninja 构建工具
+
+## 🔧 编译说明
+
+### 1. 克隆项目
+```bash
+git clone https://github.com/helong70/lvgl_win_demo.git
+cd lvgl_win_demo
 ```
 
-需要安装Ninja构建工具。如果您还没有安装Ninja，可以：
-1. 从 https://github.com/ninja-build/ninja/releases 下载ninja.exe
-2. 解压到某个目录（如 `D:\ninja-win`）
-3. 修改 `build_ninja.bat` 中的 `NINJA_PATH` 变量
-
-### 方法 2: 使用MinGW Makefiles
-
-```cmd
-.\build_mingw.bat
-```
-
-### 方法 3: 自动检测编译器 (兼容性最好)
-
-```cmd
+### 2. 构建项目
+```bash
+# 使用构建脚本
 .\build.bat
-```
 
-这个脚本会自动检测可用的编译器并选择最合适的构建工具。
-
-### 方法 4: 手动编译
-
-#### 使用Visual Studio：
-
-```cmd
-# 创建构建目录
+# 或手动构建
 mkdir build
 cd build
-
-# 使用Visual Studio 2022
-cmake .. -G "Visual Studio 17 2022" -A x64
-
-# 或使用Visual Studio 2019
-cmake .. -G "Visual Studio 16 2019" -A x64
-
-# 编译项目
-cmake --build . --config Release
+cmake .. -G Ninja
+ninja
 ```
 
-#### 使用MinGW (如果已安装)：
-
-```cmd
-mkdir build
-cd build
-cmake .. -G "MinGW Makefiles"
-mingw32-make
-```
-
-## 运行
-
-编译成功后，可执行文件将位于：
-- `build/bin/LVGL_Windows_Demo.exe`
-
-运行方式：
-```cmd
-# 直接运行
-.\run.bat
-
-# 或手动运行
+### 3. 运行演示
+```bash
 .\build\bin\LVGL_Windows_Demo.exe
 ```
 
-程序运行后，您应该能看到：
-- 一个可点击的按钮（点击会改变颜色和文字）
-- 一个可拖动的滑块
-- 窗口标题
-- 完整的鼠标和键盘交互支持
+## 🎮 使用说明
 
-## 项目结构
+### 窗口操作
+- **拖动窗口**: 点击标题栏任意位置拖动
+- **关闭窗口**: 点击右上角 ❌ 按钮
+- **最小化**: 点击右上角 ➖ 按钮
+
+### UI交互
+- **主按钮**: 点击切换文本和颜色
+- **滑块**: 拖动调节数值，控制台显示当前值
+- **下拉框**: 点击展开选择选项
+
+### 键盘快捷键
+- `1` - 模拟点击主按钮
+- `2` - 模拟点击特定区域
+- `q` - 退出程序
+
+## 📁 项目结构
 
 ```
 LVGL_WIN/
-├── lvgl/                 # LVGL库源码
-│   ├── lv_conf.h        # LVGL配置文件 (已配置)
-│   └── src/             # LVGL源码
-├── main.c               # 主程序
-├── CMakeLists.txt       # 主项目CMake配置
-├── build_ninja.bat     # Ninja构建脚本 (推荐，最快)
-├── build_mingw.bat     # MinGW构建脚本
-├── build.bat           # 自动检测编译器的构建脚本
-├── run.bat             # 运行程序的脚本
-└── README.md           # 本文件
+├── main.c              # 主程序源码
+├── CMakeLists.txt      # CMake配置
+├── build.bat          # 构建脚本
+├── run.bat            # 运行脚本
+├── lvgl/              # LVGL源码子模块
+├── build/             # 构建输出目录
+│   └── bin/           # 可执行文件
+└── README.md          # 项目说明
 ```
 
-## 配置说明
+## 🔧 开发亮点
 
-### LVGL配置 (lv_conf.h)
-- 启用了Windows驱动 (`LV_USE_WINDOWS = 1`)
-- 操作系统设置为Windows (`LV_USE_OS = LV_OS_WINDOWS`)
-- 颜色深度设置为16位 (`LV_COLOR_DEPTH = 16`)
-- 禁用了SDL2支持 (不需要外部依赖)
-
-### 示例功能
-当前示例包含：
-- 一个简单的按钮
-- 一个滑块控件
-- 标题文本
-- 原生Windows窗口支持
-- 鼠标和键盘输入支持
-
-## 故障排除
-
-### 常见问题：
-
-1. **CMake错误：找不到编译器**
-   - 确保已安装Visual Studio或Visual Studio Build Tools
-   - 或者安装MinGW-w64
-   - 运行`.\build.bat`会自动检测可用的编译器
-
-2. **链接错误**
-   - 确保使用64位编译器 (推荐)
-   - 检查Windows SDK是否已安装
-
-3. **运行时错误**
-   - 确保在Windows 10或更高版本运行
-   - 检查是否有足够的内存
-
-### 手动指定编译器：
-
-如果自动检测失败，可以手动指定：
-
-```cmd
-# 使用特定的Visual Studio版本
-cmake .. -G "Visual Studio 17 2022" -A x64
-
-# 使用NMake (需要在开发者命令提示符中运行)
-cmake .. -G "NMake Makefiles"
-
-# 使用MinGW
-cmake .. -G "MinGW Makefiles"
+### 1. OpenGL集成
+```c
+// OpenGL纹理上传和渲染
+static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
+{
+    // RGB565 -> RGBA8888 转换
+    // OpenGL纹理子图像更新
+    // 硬件加速渲染
+}
 ```
 
-## 优势
+### 2. 原生窗口拖动
+```c
+case WM_NCHITTEST: {
+    // 检测鼠标位置
+    // 标题栏区域返回HTCAPTION
+    // 启用Windows原生拖动
+}
+```
 
-相比SDL2版本的优势：
-- **无外部依赖**: 只需要Windows系统库
-- **原生Windows支持**: 完全集成Windows消息循环
-- **更小的可执行文件**: 不需要链接SDL2
-- **更好的Windows集成**: 支持DPI缩放、主题等
+### 3. GDI+圆角效果
+```c
+// 使用GDI+绘制圆角窗口
+Graphics graphics(hdc);
+GraphicsPath path;
+// 添加圆角路径
+graphics.FillPath(&brush, &path);
+```
 
-## 进一步开发
+## 🐛 已知问题
 
-要扩展此演示：
-1. 修改 `ui_init()` 函数添加更多LVGL组件
-2. 在 `lv_conf.h` 中启用需要的LVGL功能
-3. 添加自定义主题和样式
-4. 集成图片和字体资源
-5. 添加文件系统支持
+- ⚠️ 最小化后可能需要点击任务栏图标恢复
+- ⚠️ 高DPI下某些UI元素可能需要微调
+- ⚠️ GDI+圆角在某些显卡上可能有兼容性问题
 
-更多LVGL文档请参考：https://docs.lvgl.io/
+## 🚧 开发计划
+
+- [ ] 添加键盘输入支持
+- [ ] 实现更多LVGL控件示例
+- [ ] 优化渲染性能
+- [ ] 添加主题切换功能
+- [ ] 支持窗口大小调整
+
+## 📝 更新日志
+
+### v1.0.0 (2025-10-24)
+- ✅ 初始版本发布
+- ✅ OpenGL硬件加速渲染
+- ✅ 无边框窗口设计
+- ✅ 标题栏拖动功能
+- ✅ 关闭和最小化按钮
+- ✅ 基础UI控件演示
+
+## 🤝 贡献指南
+
+欢迎提交Issue和Pull Request！
+
+1. Fork 项目
+2. 创建功能分支
+3. 提交更改
+4. 推送到分支
+5. 创建Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。详情请见 [LICENSE](LICENSE) 文件。
+
+## 🙏 致谢
+
+- [LVGL](https://lvgl.io/) - 优秀的嵌入式图形库
+- [OpenGL](https://www.opengl.org/) - 跨平台图形API
+- [MinGW-w64](https://www.mingw-w64.org/) - Windows下的GCC工具链
