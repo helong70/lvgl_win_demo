@@ -286,13 +286,7 @@ static void ui_init(void)
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
     printf("✓ Button created and centered\n");
     
-    /* Create a red rectangle for visual testing */
-    lv_obj_t * rect = lv_obj_create(screen);
-    lv_obj_set_size(rect, 200, 100);
-    lv_obj_set_pos(rect, 100, 100);
-    lv_obj_set_style_bg_color(rect, lv_color_hex(0xFF0000), 0);
-    lv_obj_set_style_bg_opa(rect, LV_OPA_COVER, 0);
-    printf("✓ Red rectangle created\n");
+    /* Top-left test rectangle removed per request */
 
     /* Set button color to make it stand out */
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
