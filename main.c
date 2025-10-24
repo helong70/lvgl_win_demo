@@ -584,18 +584,24 @@ static bool init_opengl_window(void)
     int y = (sy - win_h) / 2;
 
     DWORD style = WS_POPUP | WS_VISIBLE;
-    g_hwnd = CreateWindowExA(0, wc.lpszClassName, NULL, style,
-                             x, y, win_w, win_h,
-                             NULL, NULL, hInstance, NULL);
+    DWORD exStyle = WS_EX_LAYERED;
+
+    g_hwnd = CreateWindowExA(exStyle, wc.lpszClassName, NULL, style,
+                         x, y, win_w, win_h,
+                         NULL, NULL, hInstance, NULL);
 
     if (!g_hwnd) {
         printf("CreateWindow failed\n");
         return false;
     }
 
-    /* 设置圆角 */
-    HRGN rgn = CreateRoundRectRgn(0, 0, win_w+1, win_h+1, 30, 30); // 圆角半径为 20
+    /* 设置圆角和透明背景 */
+    HRGN rgn = CreateRoundRectRgn(0, 0, win_w + 1, win_h + 1, 30, 30); // 圆角半径为 30
     SetWindowRgn(g_hwnd, rgn, TRUE);
+    DeleteObject(rgn); // 删除区域对象以释放资源
+
+    /* 设置透明背景 */
+    SetLayeredWindowAttributes(g_hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY | LWA_ALPHA);
 
     g_hdc = GetDC(g_hwnd);
 
