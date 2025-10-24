@@ -33,6 +33,12 @@ static int g_win_w = 800;
 static int g_win_h = 600;
 /* UI scale factor (based on system DPI). Default 1.0. */
 static float g_ui_scale = 1.0f;
+/* Titlebar dragging state */
+static bool g_title_dragging = false;
+static int g_drag_start_x = 0;
+static int g_drag_start_y = 0;
+static int g_win_start_x = 0;
+static int g_win_start_y = 0;
 #endif
 
 /***********************
@@ -44,6 +50,11 @@ static void btn_event_cb(lv_event_t * e);
 static void slider_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void simulate_mouse_click(int x, int y);
+#if USE_OPENGL
+/* Titlebar callbacks/prototypes */
+static void titlebar_event_cb(lv_event_t * e);
+static void close_btn_event_cb(lv_event_t * e);
+#endif
 #if USE_OPENGL
 static bool init_opengl_window(void);
 static void cleanup_opengl(void);
@@ -269,56 +280,77 @@ static void hal_init(void)
 static void ui_init(void)
 {
     printf("Creating UI elements...\n");
-    
+
     /* Get the active screen and ensure it's visible */
     lv_obj_t * screen = lv_screen_active();
     printf("✓ Active screen obtained: %p\n", screen);
-    
+
     /* Set a light gray background to make elements visible */
     lv_obj_set_style_bg_color(screen, lv_color_hex(0xE8E8E8), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
-    printf("✓ Screen background set\n");
-    
-    /* Create a simple button with larger size for visibility */
-    lv_obj_t * btn = lv_btn_create(screen);
+
+    /* Titlebar: create a thin bar at the top implemented with LVGL */
+    const int title_h = 36; /* logical pixels in LVGL coords */
+    lv_obj_t * title_bar = lv_obj_create(screen);
+    lv_obj_set_size(title_bar, g_width, title_h);
+    lv_obj_set_pos(title_bar, 0, -1);
+    lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
+    lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
+    /* Disable internal scrolling for the title bar so its children cannot be
+     * vertically scrolled by touch/drag gestures. We still receive events for
+     * press/pressing/release to implement window dragging.
+     */
+    lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(title_bar, LV_DIR_NONE);
+    lv_obj_set_scrollbar_mode(title_bar, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_event_cb(title_bar, titlebar_event_cb, LV_EVENT_ALL, NULL);
+
+    /* Title text */
+    lv_obj_t * title_label = lv_label_create(title_bar);
+    lv_label_set_text(title_label, "LVGL OpenGL Demo");
+    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFFFF), 0);
+
+    /* Close button on the right of titlebar */
+    lv_obj_t * close_btn = lv_btn_create(title_bar);
+    lv_obj_set_size(close_btn, 28, 24);
+    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 8, 0);
+    lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * cb_label = lv_label_create(close_btn);
+    lv_label_set_text(cb_label, "X");
+    lv_obj_center(cb_label);
+
+    /* Content container sits below the title bar and contains the app UI */
+    lv_obj_t * content = lv_obj_create(screen);
+    lv_obj_set_size(content, g_width, g_height - title_h);
+    lv_obj_set_pos(content, 0, title_h);
+    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+
+    /* Create a simple button inside content (centered within content) */
+    lv_obj_t * btn = lv_btn_create(content);
     lv_obj_set_size(btn, 150, 60);
     lv_obj_center(btn);
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
-    printf("✓ Button created and centered\n");
-    
-    /* Top-left test rectangle removed per request */
 
-    /* Set button color to make it stand out */
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-
-    /* Create a label on the button */
     lv_obj_t * label = lv_label_create(btn);
     lv_label_set_text(label, "Click Me!");
     lv_obj_center(label);
-    
-    /* Set label color */
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
 
-    /* Create a slider below the button */
-    lv_obj_t * slider = lv_slider_create(screen);
+    /* Slider below the button (in content) */
+    lv_obj_t * slider = lv_slider_create(content);
     lv_obj_set_size(slider, 250, 30);
     lv_obj_align_to(slider, btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 40);
     lv_slider_set_value(slider, 50, LV_ANIM_OFF);
-    /* add an event callback to keep styles consistent when value changes */
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Create a title above the button */
-    lv_obj_t * title = lv_label_create(screen);
-    lv_label_set_text(title, "LVGL Windows Demo with Input Simulation");
-    lv_obj_align_to(title, btn, LV_ALIGN_OUT_TOP_MID, 0, -40);
-    lv_obj_set_style_text_color(title, lv_color_hex(0x333333), 0);
-    
-    /* Create status label */
-    lv_obj_t * status = lv_label_create(screen);
+    /* Status label under the slider */
+    lv_obj_t * status = lv_label_create(content);
     lv_label_set_text(status, "Press '1' to click button, '2' for rectangle, 'q' to quit");
     lv_obj_align_to(status, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
     lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
-    
+
     /* Force screen refresh */
     lv_obj_invalidate(screen);
     lv_refr_now(display);
@@ -381,6 +413,38 @@ static void simulate_mouse_click(int x, int y)
     lv_timer_handler();
     
     printf("Mouse click simulated at (%d, %d)\n", x, y);
+}
+
+/* Titlebar callbacks -----------------------------------------------------*/
+static void close_btn_event_cb(lv_event_t * e)
+{
+    (void)e;
+    /* Ask the Win32 loop to quit */
+    PostQuitMessage(0);
+}
+
+static void titlebar_event_cb(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        g_title_dragging = true;
+        g_drag_start_x = mouse_data.point.x;
+        g_drag_start_y = mouse_data.point.y;
+        RECT rc;
+        if (g_hwnd && GetWindowRect(g_hwnd, &rc)) {
+            g_win_start_x = rc.left;
+            g_win_start_y = rc.top;
+        }
+    } else if (code == LV_EVENT_PRESSING) {
+        if (g_title_dragging && g_hwnd) {
+            int dx = mouse_data.point.x - g_drag_start_x;
+            int dy = mouse_data.point.y - g_drag_start_y;
+            /* Allow both horizontal and vertical movement (restore original behavior) */
+            SetWindowPos(g_hwnd, NULL, g_win_start_x + dx, g_win_start_y + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        }
+    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        g_title_dragging = false;
+    }
 }
 
 #if USE_OPENGL
@@ -454,12 +518,22 @@ static bool init_opengl_window(void)
      * (which remains at g_width x g_height) appears larger on high-DPI displays.
      */
     {
-        int win_w = (int)(g_width * g_ui_scale) + 16;
-        int win_h = (int)(g_height * g_ui_scale) + 39;
-        g_hwnd = CreateWindowA(wc.lpszClassName, "LVGL OpenGL",
-                          WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                          CW_USEDEFAULT, CW_USEDEFAULT, win_w, win_h,
-                          NULL, NULL, hInstance, NULL);
+        /* Create a borderless (no chrome) window sized exactly to the scaled
+         * LVGL framebuffer so the UI is visible but the standard Windows frame
+         * (title bar, borders, maximize/minimize buttons) is not shown.
+         */
+        int win_w = (int)(g_width * g_ui_scale);
+        int win_h = (int)(g_height * g_ui_scale);
+        /* center on screen */
+        int sx = GetSystemMetrics(SM_CXSCREEN);
+        int sy = GetSystemMetrics(SM_CYSCREEN);
+        int x = (sx - win_w) / 2;
+        int y = (sy - win_h) / 2;
+
+        DWORD style = WS_POPUP | WS_VISIBLE;
+        g_hwnd = CreateWindowExA(0, wc.lpszClassName, NULL, style,
+                                 x, y, win_w, win_h,
+                                 NULL, NULL, hInstance, NULL);
     }
     if (!g_hwnd) {
         printf("CreateWindow failed\n");
