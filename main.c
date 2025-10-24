@@ -438,11 +438,33 @@ static void simulate_mouse_click(int x, int y)
 }
 
 /* Titlebar callbacks -----------------------------------------------------*/
+/* 添加一个普通的 C 函数用于动画完成后的回调 */
+static void anim_ready_cb(lv_anim_t * a)
+{
+    (void)a; /* 忽略参数 */
+    PostQuitMessage(0); /* 关闭应用程序 */
+}
+
+/* 修改 close_btn_event_cb */
 static void close_btn_event_cb(lv_event_t * e)
 {
-    (void)e;
-    /* Ask the Win32 loop to quit */
-    PostQuitMessage(0);
+    lv_obj_t * btn = lv_event_get_target(e);
+
+    /* Change button color to red */
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
+
+    /* Create an animation to fade out the button */
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, btn);
+    lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
+    lv_anim_set_time(&anim, 50); /* 500ms animation */
+    lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
+
+    /* 使用普通函数作为动画完成后的回调 */
+    lv_anim_set_ready_cb(&anim, anim_ready_cb);
+
+    lv_anim_start(&anim);
 }
 
 static void titlebar_event_cb(lv_event_t * e)
