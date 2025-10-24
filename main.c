@@ -9,6 +9,8 @@
 #if USE_OPENGL
 #include <GL/gl.h>
 #endif
+#include <gdiplus.h>
+using namespace Gdiplus;
 
 #ifndef GL_MULTISAMPLE
 #define GL_MULTISAMPLE 0x809D
@@ -55,6 +57,7 @@ static void hal_init(void);
 static void ui_init(void);
 static void btn_event_cb(lv_event_t * e);
 static void slider_event_cb(lv_event_t * e);
+static void dropdown_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void simulate_mouse_click(int x, int y);
 #if USE_OPENGL
@@ -122,7 +125,7 @@ static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_
             }
         }
     /* draw to window - use current client size so the texture is scaled to window */
-    glViewport(0, 0, g_win_w, g_win_h);
+        glViewport(0, 0, g_win_w, g_win_h);
         glClear(GL_COLOR_BUFFER_BIT);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -305,7 +308,8 @@ static void ui_init(void)
     /* Titlebar: create a thin bar at the top implemented with LVGL */
     const int title_h = 36; /* logical pixels in LVGL coords */
     lv_obj_t * title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, g_width+4, title_h);
+    lv_obj_set_size(title_bar, g_width+6
+        , title_h);
     lv_obj_set_pos(title_bar, 0, 0);
     lv_obj_align(title_bar, LV_ALIGN_TOP_MID, 0, -2);
     lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
@@ -376,10 +380,23 @@ static void ui_init(void)
     lv_slider_set_value(slider, 50, LV_ANIM_OFF);
     lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    /* Status label under the slider */
+    /* Dropdown below the slider */
+    lv_obj_t * dropdown = lv_dropdown_create(content);
+    lv_dropdown_set_options(dropdown, "Option 1\nOption 2\nOption 3\nOption 4\nOption 5");
+    lv_obj_set_size(dropdown, 200, 40);
+    lv_obj_align_to(dropdown, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
+    lv_obj_add_event_cb(dropdown, dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    
+    /* Style the dropdown */
+    lv_obj_set_style_radius(dropdown, 8, 0);
+    lv_obj_set_style_bg_color(dropdown, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_color(dropdown, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_border_width(dropdown, 1, 0);
+
+    /* Status label under the dropdown */
     lv_obj_t * status = lv_label_create(content);
     lv_label_set_text(status, "Press '1' to click button, '2' for rectangle, 'q' to quit");
-    lv_obj_align_to(status, slider, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
+    lv_obj_align_to(status, dropdown, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
     lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
 
     /* Force screen refresh */
@@ -389,7 +406,7 @@ static void ui_init(void)
 
 static void btn_event_cb(lv_event_t * e)
 {
-    lv_obj_t * btn = lv_event_get_target(e);
+    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
     lv_obj_t * label = lv_obj_get_child(btn, 0);
     
     static bool clicked = false;
@@ -410,12 +427,27 @@ static void btn_event_cb(lv_event_t * e)
 
 static void slider_event_cb(lv_event_t * e)
 {
-    lv_obj_t * slider = lv_event_get_target(e);
+    lv_obj_t * slider = (lv_obj_t*)lv_event_get_target(e);
     int32_t v = lv_slider_get_value(slider);
     /* Keep slider visuals consistent: invalidate the slider and parent screen */
     lv_obj_invalidate(slider);
     lv_obj_invalidate(lv_obj_get_parent(slider));
     printf("Slider changed: %d\n", (int)v);
+}
+
+static void dropdown_event_cb(lv_event_t * e)
+{
+    lv_obj_t * dropdown = (lv_obj_t*)lv_event_get_target(e);
+    uint16_t selected = lv_dropdown_get_selected(dropdown);
+    
+    /* Get the selected option text */
+    char option_text[32];
+    lv_dropdown_get_selected_str(dropdown, option_text, sizeof(option_text));
+    
+    printf("Dropdown selection changed: Index=%d, Text='%s'\n", selected, option_text);
+    
+    /* Force a redraw of the dropdown */
+    lv_obj_invalidate(dropdown);
 }
 
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
@@ -457,7 +489,7 @@ static void anim_ready_cb(lv_anim_t * a)
 /* 修改 close_btn_event_cb */
 static void close_btn_event_cb(lv_event_t * e)
 {
-    lv_obj_t * btn = lv_event_get_target(e);
+    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
 
     /* Change button color to red */
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
@@ -563,6 +595,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             int y = (int)(short)HIWORD(lParam);
             mouse_data.point.x = x;
             mouse_data.point.y = y;
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint(hwnd, &ps);
+
+            Graphics graphics(hdc);
+            graphics.SetSmoothingMode(SmoothingModeHighQuality);
+
+            // 设置画刷和圆角矩形参数
+            SolidBrush brush(Color(255, 0, 122, 204)); // 半透明蓝色
+            Rect rect(10, 10, g_win_w - 20, g_win_h - 20);
+            int cornerRadius = 30;
+
+            // 绘制圆角矩形
+            GraphicsPath path;
+            path.AddArc(rect.X, rect.Y, cornerRadius, cornerRadius, 180, 90);
+            path.AddArc(rect.X + rect.Width - cornerRadius, rect.Y, cornerRadius, cornerRadius, 270, 90);
+            path.AddArc(rect.X + rect.Width - cornerRadius, rect.Y + rect.Height - cornerRadius, cornerRadius, cornerRadius, 0, 90);
+            path.AddArc(rect.X, rect.Y + rect.Height - cornerRadius, cornerRadius, cornerRadius, 90, 90);
+            path.CloseFigure();
+
+            graphics.FillPath(&brush, &path);
+
+            EndPaint(hwnd, &ps);
             return 0;
         }
     }
@@ -692,3 +749,15 @@ static void cleanup_opengl(void)
     }
 }
 #endif
+
+// 初始化 GDI+
+ULONG_PTR gdiplusToken;
+
+void init_gdiplus() {
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+}
+
+void cleanup_gdiplus() {
+    GdiplusShutdown(gdiplusToken);
+}

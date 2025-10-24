@@ -2,9 +2,16 @@ cmake_minimum_required(VERSION 3.16)
 
 project(LVGL_Windows_Demo)
 
+# Enable C and C++ languages
+enable_language(C CXX)
+
 # Set C standard
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Only build on Windows
 if(NOT WIN32)
@@ -19,6 +26,9 @@ add_subdirectory(${LVGL_DIR})
 if(NOT DEFINED MAIN_SOURCE)
     set(MAIN_SOURCE "main.c")
 endif()
+
+# Force C++ compilation for main.c (since it contains C++ code)
+set_source_files_properties(${MAIN_SOURCE} PROPERTIES LANGUAGE CXX)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
