@@ -28,6 +28,11 @@ static GLuint g_tex = 0;
 static uint32_t g_framebuf[800 * 600]; /* RGBA8888 framebuffer for GL texture */
 static int g_width = 800;
 static int g_height = 600;
+/* current window client size (may differ when window is resized/maximized) */
+static int g_win_w = 800;
+static int g_win_h = 600;
+/* UI scale factor (based on system DPI). Default 1.0. */
+static float g_ui_scale = 1.0f;
 #endif
 
 /***********************
@@ -98,8 +103,8 @@ static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_
                 }
             }
         }
-        /* draw to window */
-        glViewport(0, 0, g_width, g_height);
+    /* draw to window - use current client size so the texture is scaled to window */
+    glViewport(0, 0, g_win_w, g_win_h);
         glClear(GL_COLOR_BUFFER_BIT);
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
@@ -208,6 +213,20 @@ static void hal_init(void)
     printf("=== LVGL OpenGL/Console Demo ===\n");
 
 #if USE_OPENGL
+    /* Determine UI scale from system DPI so we can enlarge the window for high-DPI displays.
+     * We keep LVGL's internal framebuffer at 800x600 but scale the window so the content
+     * is rendered larger on high-DPI screens.
+     */
+    {
+        HDC scr = GetDC(NULL);
+        int dpi = GetDeviceCaps(scr, LOGPIXELSX);
+        ReleaseDC(NULL, scr);
+        g_ui_scale = (float)dpi / 96.0f;
+        if (g_ui_scale < 1.0f) g_ui_scale = 1.0f;
+        if (g_ui_scale > 3.0f) g_ui_scale = 3.0f; /* clamp reasonable max */
+        printf("System DPI=%d, UI scale=%.2f\n", dpi, g_ui_scale);
+    }
+
     /* Initialize OpenGL window and texture */
     if (!init_opengl_window()) {
         printf("ERROR: Failed to initialize OpenGL window. Falling back to console output.\n");
@@ -378,6 +397,22 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         case WM_CLOSE:
             PostQuitMessage(0);
             return 0;
+        case WM_SIZE: {
+            int new_w = (int)(short)LOWORD(lParam);
+            int new_h = (int)(short)HIWORD(lParam);
+            g_win_w = new_w > 0 ? new_w : 0;
+            g_win_h = new_h > 0 ? new_h : 0;
+            if (g_hglrc && g_hdc) {
+                wglMakeCurrent(g_hdc, g_hglrc);
+                glViewport(0, 0, g_win_w, g_win_h);
+                /* Force a redraw of LVGL screen to repaint at new size */
+                if (display) {
+                    lv_obj_invalidate(lv_screen_active());
+                    lv_refr_now(display);
+                }
+            }
+            return 0;
+        }
         case WM_LBUTTONDOWN: {
             int x = (int)(short)LOWORD(lParam);
             int y = (int)(short)HIWORD(lParam);
@@ -420,9 +455,18 @@ static bool init_opengl_window(void)
         return false;
     }
 
-    g_hwnd = CreateWindowA(wc.lpszClassName, "LVGL OpenGL", WS_OVERLAPPEDWINDOW,
-                          CW_USEDEFAULT, CW_USEDEFAULT, g_width + 16, g_height + 39,
+    /* Use a non-resizable window style so the user cannot resize or maximize it */
+    /* Create window sized according to the UI scale so the rendered LVGL framebuffer
+     * (which remains at g_width x g_height) appears larger on high-DPI displays.
+     */
+    {
+        int win_w = (int)(g_width * g_ui_scale) + 16;
+        int win_h = (int)(g_height * g_ui_scale) + 39;
+        g_hwnd = CreateWindowA(wc.lpszClassName, "LVGL OpenGL",
+                          WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+                          CW_USEDEFAULT, CW_USEDEFAULT, win_w, win_h,
                           NULL, NULL, hInstance, NULL);
+    }
     if (!g_hwnd) {
         printf("CreateWindow failed\n");
         return false;
@@ -464,6 +508,18 @@ static bool init_opengl_window(void)
 
     ShowWindow(g_hwnd, SW_SHOW);
     UpdateWindow(g_hwnd);
+
+    /* initialize current client size so glViewport can scale the texture */
+    {
+        RECT rc;
+        if (GetClientRect(g_hwnd, &rc)) {
+            g_win_w = rc.right - rc.left;
+            g_win_h = rc.bottom - rc.top;
+        } else {
+            g_win_w = g_width;
+            g_win_h = g_height;
+        }
+    }
     return true;
 }
 
