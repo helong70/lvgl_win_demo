@@ -12,6 +12,14 @@
 #include <gdiplus.h>
 using namespace Gdiplus;
 
+/* Define macros for extracting coordinates from LPARAM */
+#ifndef GET_X_LPARAM
+#define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
+#endif
+#ifndef GET_Y_LPARAM
+#define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
+#endif
+
 #ifndef GL_MULTISAMPLE
 #define GL_MULTISAMPLE 0x809D
 #endif
@@ -58,6 +66,8 @@ static void ui_init(void);
 static void btn_event_cb(lv_event_t * e);
 static void slider_event_cb(lv_event_t * e);
 static void dropdown_event_cb(lv_event_t * e);
+
+static void min_btn_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void simulate_mouse_click(int x, int y);
 #if USE_OPENGL
@@ -308,12 +318,12 @@ static void ui_init(void)
     /* Titlebar: create a thin bar at the top implemented with LVGL */
     const int title_h = 36; /* logical pixels in LVGL coords */
     lv_obj_t * title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, g_width+6
-        , title_h);
+    lv_obj_set_size(title_bar, g_width+6 ,title_h+2);
     lv_obj_set_pos(title_bar, 0, 0);
     lv_obj_align(title_bar, LV_ALIGN_TOP_MID, 0, -2);
     lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
     lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(title_bar, 12, 0);
     /* Disable internal scrolling for the title bar so its children cannot be
      * vertically scrolled by touch/drag gestures. We still receive events for
      * press/pressing/release to implement window dragging.
@@ -334,16 +344,31 @@ static void ui_init(void)
 
     /* Close button on the right of titlebar */
     lv_obj_t * close_btn = lv_btn_create(title_bar);
-    lv_obj_set_size(close_btn, 28, 24);
-    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 8, 0);
+    lv_obj_set_size(close_btn, 48, 36);
+    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 22, 0);
     lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * cb_label = lv_label_create(close_btn);
-    lv_label_set_text(cb_label, "X");
-    lv_obj_center(cb_label);
+    lv_label_set_text(cb_label, LV_SYMBOL_CLOSE); // 使用内置关闭符号
+    
+    //lv_obj_set_style_text_color(cb_label, lv_color_hex(0xFFFFFF), 0);
+    /* 使用合适大小的字体（按需调整为项目中可用的 montserrat 大小，例如 18/22/28） */
+    lv_obj_align(cb_label, LV_ALIGN_CENTER, -5, 0);
     /* Round the close button for consistency */
-    lv_obj_set_style_radius(close_btn, 8, 0);
+    lv_obj_set_style_radius(close_btn, 0, 0);
     /* Remove shadow */
     lv_obj_set_style_shadow_width(close_btn, 0, 0);
+
+    /* 修改最小化按钮 - 使用内置符号 */
+    lv_obj_t * min_btn = lv_btn_create(title_bar);
+    lv_obj_set_size(min_btn, 38, 36);
+    lv_obj_set_style_bg_color(min_btn, lv_color_hex(0xAF7F00), 0);
+    lv_obj_align(min_btn, LV_ALIGN_RIGHT_MID, -26, 0);
+    lv_obj_add_event_cb(min_btn, min_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t * min_label = lv_label_create(min_btn);
+    lv_label_set_text(min_label, LV_SYMBOL_MINUS); // 使用内置减号符号
+    lv_obj_align(min_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(min_btn, 0, 0);
+    lv_obj_set_style_shadow_width(min_btn, 0, 0);
 
     /* Content container sits below the title bar and contains the app UI */
     lv_obj_t * content = lv_obj_create(screen);
@@ -352,7 +377,7 @@ static void ui_init(void)
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
 
     /* Rounded corners for content area for a modern look */
-    lv_obj_set_style_radius(content, 12, 0);
+    lv_obj_set_style_radius(content, 0, 0);
     lv_obj_set_style_clip_corner(content, true, 0); /* clip children to rounded corners */
 
     /* Disable scrolling on the main content so users cannot swipe left/right */
@@ -510,51 +535,58 @@ static void close_btn_event_cb(lv_event_t * e)
 
 static void titlebar_event_cb(lv_event_t * e)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    /* Implement capture-based dragging: when the titlebar is pressed we
-     * capture the mouse (SetCapture) and track the global cursor position
-     * with GetCursorPos while LV_EVENT_PRESSING events arrive. This
-     * guarantees we keep receiving mouse moves even if the cursor leaves
-     * the client area. On release we call ReleaseCapture.
+    /* Window dragging is now handled natively via WM_NCHITTEST in WndProc.
+     * This function can be used for other title bar interactions if needed.
      */
+    lv_event_code_t code = lv_event_get_code(e);
+    
     if (code == LV_EVENT_PRESSED) {
-        if (g_hwnd) {
-            POINT pt;
-            RECT rc;
-            /* Record global cursor position and window origin */
-            if (GetCursorPos(&pt) && GetWindowRect(g_hwnd, &rc)) {
-                g_title_dragging = true;
-                g_drag_start_x = pt.x;
-                g_drag_start_y = pt.y;
-                g_win_start_x = rc.left;
-                g_win_start_y = rc.top;
-                /* Ensure the window receives mouse messages until release */
-                SetCapture(g_hwnd);
-            }
-        }
-    } else if (code == LV_EVENT_PRESSING) {
-        if (g_title_dragging && g_hwnd) {
-            POINT pt;
-            if (GetCursorPos(&pt)) {
-                int dx = pt.x - g_drag_start_x;
-                int dy = pt.y - g_drag_start_y;
-                SetWindowPos(g_hwnd, NULL, g_win_start_x + dx, g_win_start_y + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-            }
-        }
-    } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        if (g_title_dragging) {
-            g_title_dragging = false;
-            /* Release capture in case we set it earlier */
-            ReleaseCapture();
-        }
+        /* Title bar was clicked - native dragging will handle movement */
+        printf("Title bar clicked\n");
     }
 }
 
+static void min_btn_event_cb(lv_event_t * e)
+{
+    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
+
+    printf("Minimize button clicked\n");
+    
+#if USE_OPENGL
+    if (g_hwnd) {
+        /* 改变按钮颜色提供视觉反馈 */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x8B5A00), 0);
+        
+        /* 直接最小化窗口 */
+        ShowWindow(g_hwnd, SW_MINIMIZE);
+        printf("Window minimized\n");
+        
+        /* 恢复按钮颜色 */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
+    }
+#endif
+}
 #if USE_OPENGL
 /* Simple Win32 window + OpenGL initialization */
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg) {
+        case WM_NCHITTEST: {
+            /* Allow dragging the window by clicking anywhere in the title bar area */
+            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            ScreenToClient(hwnd, &pt);
+            
+            /* Check if cursor is in title bar area (top 36 pixels) */
+            if (pt.y >= 0 && pt.y <= 36) {
+                /* Check if it's not over the close button area (right 70 pixels to accommodate 48px button + 22px offset) */
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                if (pt.x < rc.right - 180) {
+                    return HTCAPTION; /* This enables native window dragging */
+                }
+            }
+            return DefWindowProc(hwnd, msg, wParam, lParam);
+        }
         case WM_CLOSE:
             PostQuitMessage(0);
             return 0;
@@ -607,7 +639,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             // 设置画刷和圆角矩形参数
             SolidBrush brush(Color(255, 0, 122, 204)); // 半透明蓝色
             Rect rect(10, 10, g_win_w - 20, g_win_h - 20);
-            int cornerRadius = 30;
+            int cornerRadius = 60;
 
             // 绘制圆角矩形
             GraphicsPath path;
@@ -662,7 +694,7 @@ static bool init_opengl_window(void)
     }
 
     /* 设置圆角和透明背景 */
-    HRGN rgn = CreateRoundRectRgn(0, 0, win_w + 1, win_h + 1, 30, 30); // 圆角半径为 30
+    HRGN rgn = CreateRoundRectRgn(0, 0, win_w + 0, win_h + 0, 50, 50); // 圆角半径为 30
     SetWindowRgn(g_hwnd, rgn, TRUE);
     DeleteObject(rgn); // 删除区域对象以释放资源
 
