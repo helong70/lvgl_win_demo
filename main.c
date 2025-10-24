@@ -31,10 +31,12 @@ using namespace Gdiplus;
  *   STATIC VARIABLES
  ***********************/
 static lv_display_t * display;
-static lv_indev_t * indev;
+static lv_indev_t * indev_mouse;
+static lv_indev_t * indev_keyboard;
 static uint16_t buf1[800 * 600 / 10];
 static uint16_t buf2[800 * 600 / 10];
 static lv_indev_data_t mouse_data;
+static lv_indev_data_t keyboard_data;
 
 #if USE_OPENGL
 /* OpenGL / windowing globals */
@@ -66,9 +68,12 @@ static void ui_init(void);
 static void btn_event_cb(lv_event_t * e);
 static void slider_event_cb(lv_event_t * e);
 static void dropdown_event_cb(lv_event_t * e);
+static void textarea_event_cb(lv_event_t * e);
+static void textarea2_event_cb(lv_event_t * e);
 
 static void min_btn_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
+static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void simulate_mouse_click(int x, int y);
 #if USE_OPENGL
 /* Titlebar callbacks/prototypes */
@@ -288,13 +293,23 @@ static void hal_init(void)
     mouse_data.point.y = 0;
     mouse_data.state = LV_INDEV_STATE_RELEASED;
     
-    /* Create input device */
-    indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(indev, mouse_read);
-    lv_indev_set_display(indev, display);
+    /* Initialize keyboard data */
+    keyboard_data.key = 0;
+    keyboard_data.state = LV_INDEV_STATE_RELEASED;
     
-    printf("✓ Display and input device initialized\n");
+    /* Create mouse input device */
+    indev_mouse = lv_indev_create();
+    lv_indev_set_type(indev_mouse, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev_mouse, mouse_read);
+    lv_indev_set_display(indev_mouse, display);
+    
+    /* Create keyboard input device */
+    indev_keyboard = lv_indev_create();
+    lv_indev_set_type(indev_keyboard, LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(indev_keyboard, keyboard_read);
+    lv_indev_set_display(indev_keyboard, display);
+    
+    printf("✓ Display and input devices initialized\n");
 }
 
 static void ui_init(void)
@@ -418,10 +433,60 @@ static void ui_init(void)
     lv_obj_set_style_border_color(dropdown, lv_color_hex(0xCCCCCC), 0);
     lv_obj_set_style_border_width(dropdown, 1, 0);
 
-    /* Status label under the dropdown */
+    /* First text area (username input) - left side */
+    lv_obj_t * textarea = lv_textarea_create(content);
+    lv_obj_set_size(textarea, 135, 50); /* Narrower width to fit side by side */
+    lv_obj_align_to(textarea, dropdown, LV_ALIGN_OUT_BOTTOM_LEFT, 5, 30); /* Align to left with small margin */
+    lv_textarea_set_placeholder_text(textarea, "Username...");
+    lv_textarea_set_text(textarea, "");
+    lv_obj_add_event_cb(textarea, textarea_event_cb, LV_EVENT_ALL, NULL);
+    
+    /* Style the first textarea */
+    lv_obj_set_style_radius(textarea, 8, 0);
+    lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_border_width(textarea, 2, 0);
+    lv_obj_set_style_pad_all(textarea, 8, 0);
+    
+    /* Focus border color */
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(textarea, 2, LV_STATE_FOCUSED);
+    
+    /* Create a group for keyboard navigation and assign textarea to it */
+    lv_group_t * keyboard_group = lv_group_create();
+    lv_group_add_obj(keyboard_group, textarea);
+    lv_indev_set_group(indev_keyboard, keyboard_group);
+    
+    /* Set textarea as focused by default so it can receive keyboard input */
+    lv_obj_add_state(textarea, LV_STATE_FOCUSED);
+
+    /* Second text area (password input) - right side of first textarea */
+    lv_obj_t * textarea2 = lv_textarea_create(content);
+    lv_obj_set_size(textarea2, 135, 50); /* Same width as first textarea */
+    lv_obj_align_to(textarea2, textarea, LV_ALIGN_OUT_RIGHT_MID, 10, 0); /* Right of first textarea with gap */
+    lv_textarea_set_placeholder_text(textarea2, "Password...");
+    lv_textarea_set_text(textarea2, "");
+    lv_textarea_set_password_mode(textarea2, true); /* Enable password mode */
+    lv_obj_add_event_cb(textarea2, textarea2_event_cb, LV_EVENT_ALL, NULL);
+    
+    /* Style the second textarea */
+    lv_obj_set_style_radius(textarea2, 8, 0);
+    lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E1), 0); /* Light yellow background */
+    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_border_width(textarea2, 2, 0);
+    lv_obj_set_style_pad_all(textarea2, 8, 0);
+    
+    /* Focus border color for second textarea */
+    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFF9800), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(textarea2, 2, LV_STATE_FOCUSED);
+    
+    /* Add second textarea to keyboard group */
+    lv_group_add_obj(keyboard_group, textarea2);
+
+    /* Status label under both textareas (centered) */
     lv_obj_t * status = lv_label_create(content);
-    lv_label_set_text(status, "Press '1' to click button, '2' for rectangle, 'q' to quit");
-    lv_obj_align_to(status, dropdown, LV_ALIGN_OUT_BOTTOM_MID, 0, 30);
+    lv_label_set_text(status, "Username & Password fields side by side. Tab to switch, type to input.");
+    lv_obj_align_to(status, textarea, LV_ALIGN_OUT_BOTTOM_MID, 70, 20); /* Center between both textareas */
     lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
 
     /* Force screen refresh */
@@ -475,12 +540,109 @@ static void dropdown_event_cb(lv_event_t * e)
     lv_obj_invalidate(dropdown);
 }
 
+static void textarea_event_cb(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * textarea = (lv_obj_t*)lv_event_get_target(e);
+    
+    if (code == LV_EVENT_CLICKED) {
+        printf("Textarea clicked - ready for input\n");
+    }
+    else if (code == LV_EVENT_FOCUSED) {
+        printf("Textarea focused\n");
+        /* Change border color when focused */
+        lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), 0);
+    }
+    else if (code == LV_EVENT_DEFOCUSED) {
+        printf("Textarea defocused\n");
+        /* Restore normal border color when unfocused */
+        lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
+    }
+    else if (code == LV_EVENT_VALUE_CHANGED) {
+        /* Get current text content */
+        const char * text = lv_textarea_get_text(textarea);
+        printf("Textarea content changed: '%s'\n", text);
+        
+        /* Optional: Limit text length */
+        if (strlen(text) > 100) {
+            printf("Text too long, truncating...\n");
+            char truncated[101];
+            strncpy(truncated, text, 100);
+            truncated[100] = '\0';
+            lv_textarea_set_text(textarea, truncated);
+        }
+    }
+    else if (code == LV_EVENT_READY) {
+        /* This event is triggered when Enter is pressed (in one-line mode) */
+        const char * text = lv_textarea_get_text(textarea);
+        printf("Textarea ready (Enter pressed): '%s'\n", text);
+    }
+}
+
+static void textarea2_event_cb(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+    lv_obj_t * textarea2 = (lv_obj_t*)lv_event_get_target(e);
+    
+    if (code == LV_EVENT_CLICKED) {
+        printf("Password field clicked - ready for input\n");
+    }
+    else if (code == LV_EVENT_FOCUSED) {
+        printf("Password field focused\n");
+        /* Change border color when focused */
+        lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFF9800), 0);
+        lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF3E0), 0); /* Slightly darker when focused */
+    }
+    else if (code == LV_EVENT_DEFOCUSED) {
+        printf("Password field defocused\n");
+        /* Restore normal border color when unfocused */
+        lv_obj_set_style_border_color(textarea2, lv_color_hex(0xCCCCCC), 0);
+        lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E1), 0); /* Back to light yellow */
+    }
+    else if (code == LV_EVENT_VALUE_CHANGED) {
+        /* Get current text content (even though it's masked) */
+        const char * text = lv_textarea_get_text(textarea2);
+        printf("Password field content changed (length: %d)\n", (int)strlen(text));
+        
+        /* Optional: Limit password length */
+        if (strlen(text) > 20) {
+            printf("Password too long, truncating to 20 characters...\n");
+            char truncated[21];
+            strncpy(truncated, text, 20);
+            truncated[20] = '\0';
+            lv_textarea_set_text(textarea2, truncated);
+        }
+    }
+    else if (code == LV_EVENT_READY) {
+        /* This event is triggered when Enter is pressed */
+        const char * text = lv_textarea_get_text(textarea2);
+        printf("Password field ready (Enter pressed, length: %d)\n", (int)strlen(text));
+        
+        /* Simulate form submission */
+        printf("=== Form Submission Simulation ===\n");
+        printf("Password: [HIDDEN] (length: %d)\n", (int)strlen(text));
+        printf("=== End Submission ===\n");
+    }
+}
+
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
     /* Copy the current mouse data */
     data->point.x = mouse_data.point.x;
     data->point.y = mouse_data.point.y;
     data->state = mouse_data.state;
+}
+
+static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data)
+{
+    /* Copy the current keyboard data */
+    data->key = keyboard_data.key;
+    data->state = keyboard_data.state;
+    
+    /* Clear the key after reading to avoid repeated events */
+    if (keyboard_data.state == LV_INDEV_STATE_RELEASED) {
+        keyboard_data.key = 0;
+    }
 }
 
 static void simulate_mouse_click(int x, int y)
@@ -627,6 +789,54 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             int y = (int)(short)HIWORD(lParam);
             mouse_data.point.x = x;
             mouse_data.point.y = y;
+            return 0;
+        }
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            uint32_t key = (uint32_t)wParam;
+            printf("Key pressed: 0x%X (%d)\n", key, key);
+            
+            /* Convert Windows virtual key codes to LVGL key codes */
+            uint32_t lv_key = 0;
+            switch (key) {
+                case VK_UP:       lv_key = LV_KEY_UP; break;
+                case VK_DOWN:     lv_key = LV_KEY_DOWN; break;
+                case VK_LEFT:     lv_key = LV_KEY_LEFT; break;
+                case VK_RIGHT:    lv_key = LV_KEY_RIGHT; break;
+                case VK_ESCAPE:   lv_key = LV_KEY_ESC; break;
+                case VK_DELETE:   lv_key = LV_KEY_DEL; break;
+                case VK_BACK:     lv_key = LV_KEY_BACKSPACE; break;
+                case VK_RETURN:   lv_key = LV_KEY_ENTER; break;
+                case VK_TAB:      lv_key = LV_KEY_NEXT; break;
+                case VK_HOME:     lv_key = LV_KEY_HOME; break;
+                case VK_END:      lv_key = LV_KEY_END; break;
+                default:
+                    /* For printable characters */
+                    if (key >= 32 && key <= 126) {
+                        lv_key = key;
+                    }
+                    break;
+            }
+            
+            if (lv_key != 0) {
+                keyboard_data.key = lv_key;
+                keyboard_data.state = LV_INDEV_STATE_PRESSED;
+            }
+            return 0;
+        }
+        case WM_KEYUP:
+        case WM_SYSKEYUP: {
+            keyboard_data.state = LV_INDEV_STATE_RELEASED;
+            return 0;
+        }
+        case WM_CHAR: {
+            /* Handle character input for text fields */
+            uint32_t character = (uint32_t)wParam;
+            if (character >= 32 && character <= 126) {
+                printf("Character input: '%c' (0x%X)\n", (char)character, character);
+                keyboard_data.key = character;
+                keyboard_data.state = LV_INDEV_STATE_PRESSED;
+            }
             return 0;
         }
         case WM_PAINT: {
