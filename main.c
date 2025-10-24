@@ -575,32 +575,27 @@ static bool init_opengl_window(void)
         return false;
     }
 
-    /* Use a non-resizable window style so the user cannot resize or maximize it */
-    /* Create window sized according to the UI scale so the rendered LVGL framebuffer
-     * (which remains at g_width x g_height) appears larger on high-DPI displays.
-     */
-    {
-        /* Create a borderless (no chrome) window sized exactly to the scaled
-         * LVGL framebuffer so the UI is visible but the standard Windows frame
-         * (title bar, borders, maximize/minimize buttons) is not shown.
-         */
-        int win_w = (int)(g_width * g_ui_scale);
-        int win_h = (int)(g_height * g_ui_scale);
-        /* center on screen */
-        int sx = GetSystemMetrics(SM_CXSCREEN);
-        int sy = GetSystemMetrics(SM_CYSCREEN);
-        int x = (sx - win_w) / 2;
-        int y = (sy - win_h) / 2;
+    /* Create window */
+    int win_w = (int)(g_width * g_ui_scale);
+    int win_h = (int)(g_height * g_ui_scale);
+    int sx = GetSystemMetrics(SM_CXSCREEN);
+    int sy = GetSystemMetrics(SM_CYSCREEN);
+    int x = (sx - win_w) / 2;
+    int y = (sy - win_h) / 2;
 
-        DWORD style = WS_POPUP | WS_VISIBLE;
-        g_hwnd = CreateWindowExA(0, wc.lpszClassName, NULL, style,
-                                 x, y, win_w, win_h,
-                                 NULL, NULL, hInstance, NULL);
-    }
+    DWORD style = WS_POPUP | WS_VISIBLE;
+    g_hwnd = CreateWindowExA(0, wc.lpszClassName, NULL, style,
+                             x, y, win_w, win_h,
+                             NULL, NULL, hInstance, NULL);
+
     if (!g_hwnd) {
         printf("CreateWindow failed\n");
         return false;
     }
+
+    /* 设置圆角 */
+    HRGN rgn = CreateRoundRectRgn(0, 0, win_w+1, win_h+1, 30, 30); // 圆角半径为 20
+    SetWindowRgn(g_hwnd, rgn, TRUE);
 
     g_hdc = GetDC(g_hwnd);
 
@@ -633,22 +628,16 @@ static bool init_opengl_window(void)
         return false;
     }
 
-    /* initialize texture to white */
-    for (int i = 0; i < g_width * g_height; ++i) g_framebuf[i] = 0xFFFFFFFFu;
-
     ShowWindow(g_hwnd, SW_SHOW);
     UpdateWindow(g_hwnd);
 
-    /* initialize current client size so glViewport can scale the texture */
-    {
-        RECT rc;
-        if (GetClientRect(g_hwnd, &rc)) {
-            g_win_w = rc.right - rc.left;
-            g_win_h = rc.bottom - rc.top;
-        } else {
-            g_win_w = g_width;
-            g_win_h = g_height;
-        }
+    RECT rc;
+    if (GetClientRect(g_hwnd, &rc)) {
+        g_win_w = rc.right - rc.left;
+        g_win_h = rc.bottom - rc.top;
+    } else {
+        g_win_w = g_width;
+        g_win_h = g_height;
     }
     return true;
 }
