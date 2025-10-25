@@ -34,6 +34,10 @@ set(UI_SOURCES
     ui/titlebar.c
 )
 
+set(PLATFORM_SOURCES
+    platform/windows/win32_platform.c
+)
+
 # Force C++ compilation for main.c (since it contains C++ code)
 set_source_files_properties(${MAIN_SOURCE} PROPERTIES LANGUAGE CXX)
 set_source_files_properties(${UI_SOURCES} PROPERTIES LANGUAGE CXX)
@@ -43,9 +47,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Create executable
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES})
+    add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES} ${PLATFORM_SOURCES})
 else()
-    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES})
+    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES} ${PLATFORM_SOURCES})
 endif()
 
 # Link libraries

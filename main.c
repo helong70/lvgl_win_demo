@@ -5,6 +5,7 @@
 #include "ui/maincontainer.h"
 #include "ui/setting.h"
 #include "ui/titlebar.h"
+#include "platform/windows/win32_platform.h"
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
@@ -96,8 +97,6 @@ static void keyboard_queue_push(uint32_t key, lv_indev_state_t state);
 static bool keyboard_queue_pop(keyboard_event_t* event);
 static void simulate_mouse_click(int x, int y);
 /* Clipboard functions */
-static bool copy_text_to_clipboard(const char* text);
-static char* paste_text_from_clipboard(void);
 /* Long press acceleration functions */
 static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration);
 static void reset_long_press_state(void);
@@ -105,10 +104,6 @@ static void reset_long_press_state(void);
 static bool init_opengl_window(void);
 static void cleanup_opengl(void);
 /* Expose g_hwnd to other modules */
-HWND get_main_window_handle(void)
-{
-    return g_hwnd;
-}
 #endif
 
 static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
@@ -437,107 +432,6 @@ static bool keyboard_queue_pop(keyboard_event_t* event)
     return true;
 }
 
-/* Clipboard functions */
-static bool copy_text_to_clipboard(const char* text)
-{
-    if (!text || strlen(text) == 0) {
-        return false;
-    }
-    
-    /* Open clipboard */
-    if (!OpenClipboard(g_hwnd)) {
-        printf("Failed to open clipboard for copy\n");
-        return false;
-    }
-    
-    /* Empty clipboard */
-    if (!EmptyClipboard()) {
-        printf("Failed to empty clipboard\n");
-        CloseClipboard();
-        return false;
-    }
-    
-    /* Allocate global memory for text */
-    size_t text_len = strlen(text) + 1;
-    HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, text_len);
-    if (!hGlobal) {
-        printf("Failed to allocate memory for clipboard\n");
-        CloseClipboard();
-        return false;
-    }
-    
-    /* Lock memory and copy text */
-    char* pGlobal = (char*)GlobalLock(hGlobal);
-    if (!pGlobal) {
-        printf("Failed to lock clipboard memory\n");
-        GlobalFree(hGlobal);
-        CloseClipboard();
-        return false;
-    }
-    
-    strcpy(pGlobal, text);
-    GlobalUnlock(hGlobal);
-    
-    /* Set clipboard data */
-    if (!SetClipboardData(CF_TEXT, hGlobal)) {
-        printf("Failed to set clipboard data\n");
-        GlobalFree(hGlobal);
-        CloseClipboard();
-        return false;
-    }
-    
-    /* Close clipboard */
-    CloseClipboard();
-    
-    printf("Text copied to clipboard: '%s'\n", text);
-    return true;
-}
-
-static char* paste_text_from_clipboard(void)
-{
-    /* Open clipboard */
-    if (!OpenClipboard(g_hwnd)) {
-        printf("Failed to open clipboard for paste\n");
-        return NULL;
-    }
-    
-    /* Get clipboard data */
-    HANDLE hData = GetClipboardData(CF_TEXT);
-    if (!hData) {
-        printf("No text data in clipboard\n");
-        CloseClipboard();
-        return NULL;
-    }
-    
-    /* Lock memory and get text */
-    char* pData = (char*)GlobalLock(hData);
-    if (!pData) {
-        printf("Failed to lock clipboard data\n");
-        CloseClipboard();
-        return NULL;
-    }
-    
-    /* Allocate memory for return value */
-    size_t data_len = strlen(pData) + 1;
-    char* result = (char*)malloc(data_len);
-    if (!result) {
-        printf("Failed to allocate memory for pasted text\n");
-        GlobalUnlock(hData);
-        CloseClipboard();
-        return NULL;
-    }
-    
-    /* Copy text */
-    strcpy(result, pData);
-    
-    /* Unlock and close */
-    GlobalUnlock(hData);
-    CloseClipboard();
-    
-    printf("Text pasted from clipboard: '%s'\n", result);
-    return result;
-}
-
 /* Calculate dynamic repeat interval for long press acceleration */
 static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration)
 {
@@ -771,7 +665,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
                     const char * text = lv_textarea_get_text(active_ta);
                     if (text && strlen(text) > 0) {
-                        copy_text_to_clipboard(text);
+                        win32_clipboard_copy(text);
                     } else {
                         printf("No text to copy\n");
                     }
@@ -787,7 +681,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
                 lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
                 if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
-                    char * pasted_text = paste_text_from_clipboard();
+                    char * pasted_text = win32_clipboard_paste();
                     if (pasted_text) {
                         /* Replace current text with pasted text */
                         lv_textarea_set_text(active_ta, pasted_text);
@@ -1053,6 +947,8 @@ static bool init_opengl_window(void)
         return false;
     }
 
+    set_main_window_handle(g_hwnd);
+
     /* 设置圆角和透明背景 */
     HRGN rgn = CreateRoundRectRgn(0, 0, win_w + 0, win_h + 0, 50, 50); // 圆角半径为 30
     SetWindowRgn(g_hwnd, rgn, TRUE);
@@ -1139,6 +1035,7 @@ static void cleanup_opengl(void)
         DestroyWindow(g_hwnd);
         g_hwnd = NULL;
     }
+    set_main_window_handle(NULL);
 }
 #endif
 
