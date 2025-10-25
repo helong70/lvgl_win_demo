@@ -6,11 +6,17 @@
 #include <conio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #if USE_OPENGL
 #include <GL/gl.h>
 #endif
 #include <gdiplus.h>
 using namespace Gdiplus;
+
+/* Custom key codes for special combinations */
+#define LV_KEY_CTRL_A 0x1001  /* Custom key code for Ctrl+A */
+#define LV_KEY_CTRL_C 0x1002  /* Custom key code for Ctrl+C */
+#define LV_KEY_CTRL_V 0x1003  /* Custom key code for Ctrl+V */
 
 /* Define macros for extracting coordinates from LPARAM */
 #ifndef GET_X_LPARAM
@@ -33,6 +39,7 @@ using namespace Gdiplus;
 static lv_display_t * display;
 static lv_indev_t * indev_mouse;
 static lv_indev_t * indev_keyboard;
+static lv_group_t * g_keyboard_group = NULL;  /* Global keyboard group for clipboard operations */
 static uint16_t buf1[800 * 600 / 10];
 static uint16_t buf2[800 * 600 / 10];
 static lv_indev_data_t mouse_data;
@@ -50,6 +57,12 @@ static int keyboard_queue_head = 0;
 static int keyboard_queue_tail = 0;
 static keyboard_event_t current_keyboard_data;
 static DWORD last_key_time = 0;
+
+/* Long press acceleration variables */
+static uint32_t long_press_key = 0;        /* Currently pressed key */
+static DWORD long_press_start_time = 0;    /* When the key was first pressed */
+static DWORD long_press_last_repeat = 0;   /* Last time the key was repeated */
+static uint32_t long_press_repeat_count = 0; /* How many times the key has repeated */
 
 #if USE_OPENGL
 /* OpenGL / windowing globals */
@@ -82,7 +95,8 @@ static void btn_event_cb(lv_event_t * e);
 static void slider_event_cb(lv_event_t * e);
 static void dropdown_event_cb(lv_event_t * e);
 static void textarea_event_cb(lv_event_t * e);
-static void textarea2_event_cb(lv_event_t * e);
+static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
+static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
 
 static void min_btn_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
@@ -90,6 +104,12 @@ static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_queue_push(uint32_t key, lv_indev_state_t state);
 static bool keyboard_queue_pop(keyboard_event_t* event);
 static void simulate_mouse_click(int x, int y);
+/* Clipboard functions */
+static bool copy_text_to_clipboard(const char* text);
+static char* paste_text_from_clipboard(void);
+/* Long press acceleration functions */
+static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration);
+static void reset_long_press_state(void);
 #if USE_OPENGL
 /* Titlebar callbacks/prototypes */
 static void titlebar_event_cb(lv_event_t * e);
@@ -216,7 +236,18 @@ int main(void)
             DispatchMessage(&msg);
         }
         lv_timer_handler();
-        Sleep(1); /* Reduced from 5ms to 1ms for better input responsiveness */
+        
+        /* Skip sleep for better responsiveness during delete operations */
+        static DWORD last_activity = 0;
+        bool active_deleting = (GetTickCount() - last_activity < 100); /* Consider active if within 100ms */
+        if (!active_deleting) {
+            Sleep(1); /* Only sleep when not actively typing/deleting */
+        }
+        
+        /* Update activity time if there are keyboard events */
+        if (keyboard_queue_head != keyboard_queue_tail) {
+            last_activity = GetTickCount();
+        }
     }
     /* cleanup */
     cleanup_opengl();
@@ -459,6 +490,8 @@ static void ui_init(void)
     lv_obj_align(textarea, LV_ALIGN_BOTTOM_LEFT, 20, -80); /* Bottom area with margin */
     lv_textarea_set_placeholder_text(textarea, "Username...");
     lv_textarea_set_text(textarea, "");
+    /* 设置用户数据标识第一个输入框 */
+    lv_obj_set_user_data(textarea, (void*)1);
     lv_obj_add_event_cb(textarea, textarea_event_cb, LV_EVENT_ALL, NULL);
     
     /* Style the first textarea */
@@ -473,9 +506,9 @@ static void ui_init(void)
     lv_obj_set_style_border_width(textarea, 2, LV_STATE_FOCUSED);
     
     /* Create a group for keyboard navigation and assign textarea to it */
-    lv_group_t * keyboard_group = lv_group_create();
-    lv_group_add_obj(keyboard_group, textarea);
-    lv_indev_set_group(indev_keyboard, keyboard_group);
+    g_keyboard_group = lv_group_create();
+    lv_group_add_obj(g_keyboard_group, textarea);
+    lv_indev_set_group(indev_keyboard, g_keyboard_group);
     
     /* Set textarea as focused by default so it can receive keyboard input */
     lv_obj_add_state(textarea, LV_STATE_FOCUSED);
@@ -487,7 +520,9 @@ static void ui_init(void)
     lv_textarea_set_placeholder_text(textarea2, "Password...");
     lv_textarea_set_text(textarea2, "");
     lv_textarea_set_password_mode(textarea2, true); /* Enable password mode */
-    lv_obj_add_event_cb(textarea2, textarea2_event_cb, LV_EVENT_ALL, NULL);
+    /* 设置用户数据标识第二个输入框 */
+    lv_obj_set_user_data(textarea2, (void*)2);
+    lv_obj_add_event_cb(textarea2, textarea_event_cb, LV_EVENT_ALL, NULL);
     
     /* Style the second textarea */
     lv_obj_set_style_radius(textarea2, 8, 0);
@@ -501,7 +536,7 @@ static void ui_init(void)
     lv_obj_set_style_border_width(textarea2, 2, LV_STATE_FOCUSED);
     
     /* Add second textarea to keyboard group */
-    lv_group_add_obj(keyboard_group, textarea2);
+    lv_group_add_obj(g_keyboard_group, textarea2);
 
     /* Status label in bottom-right corner */
     lv_obj_t * status = lv_label_create(content);
@@ -561,11 +596,53 @@ static void dropdown_event_cb(lv_event_t * e)
     lv_obj_invalidate(dropdown);
 }
 
+/* 通用输入框事件回调函数 */
 static void textarea_event_cb(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * textarea = (lv_obj_t*)lv_event_get_target(e);
     
+    /* 通用处理逻辑 */
+    if (code == LV_EVENT_KEY) {
+        /* 处理键盘事件 */
+        uint32_t key = lv_indev_get_key(lv_indev_get_act());
+        if (key == LV_KEY_CTRL_A) {
+            /* Ctrl+A 全选功能 - 通用逻辑 */
+            printf("Executing select all in textarea\n");
+            const char * text = lv_textarea_get_text(textarea);
+            if (text && strlen(text) > 0) {
+                /* LVGL textarea select all implementation */
+                lv_textarea_set_cursor_pos(textarea, 0);
+                uint32_t text_len = strlen(text);
+                lv_textarea_set_cursor_pos(textarea, text_len);
+                printf("Selected all text in textarea: '%s' (length: %d)\n", text, text_len);
+            }
+            return; /* 处理完毕，不需要调用自定义处理函数 */
+        } else if (key == LV_KEY_ESC) {
+            /* ESC键处理 */
+            printf("ESC key pressed\n");
+            return;
+        }
+    }
+    
+    /* 根据textarea对象确定调用哪个自定义处理函数 */
+    /* 通过用户数据区分不同的textarea */
+    void * user_data = lv_obj_get_user_data(textarea);
+    if (user_data == (void*)1) {
+        /* 第一个textarea (username) */
+        textarea_custom_handler(textarea, code);
+    } else if (user_data == (void*)2) {
+        /* 第二个textarea (password) */
+        textarea2_custom_handler(textarea, code);
+    } else {
+        /* 默认处理第一个textarea */
+        textarea_custom_handler(textarea, code);
+    }
+}
+
+/* 第一个输入框（用户名）的自定义处理函数 */
+static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
+{
     if (code == LV_EVENT_CLICKED) {
         printf("Textarea clicked - ready for input\n");
     }
@@ -600,29 +677,27 @@ static void textarea_event_cb(lv_event_t * e)
     }
 }
 
-static void textarea2_event_cb(lv_event_t * e)
+/* 第二个输入框（密码）的自定义处理函数 */
+static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
 {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * textarea2 = (lv_obj_t*)lv_event_get_target(e);
-    
     if (code == LV_EVENT_CLICKED) {
         printf("Password field clicked - ready for input\n");
     }
     else if (code == LV_EVENT_FOCUSED) {
         printf("Password field focused\n");
         /* Change border color when focused */
-        lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFF9800), 0);
-        lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF3E0), 0); /* Slightly darker when focused */
+        lv_obj_set_style_border_color(textarea, lv_color_hex(0xFF9800), 0);
+        lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF3E0), 0); /* Slightly darker when focused */
     }
     else if (code == LV_EVENT_DEFOCUSED) {
         printf("Password field defocused\n");
         /* Restore normal border color when unfocused */
-        lv_obj_set_style_border_color(textarea2, lv_color_hex(0xCCCCCC), 0);
-        lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E1), 0); /* Back to light yellow */
+        lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
+        lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF8E1), 0); /* Back to light yellow */
     }
     else if (code == LV_EVENT_VALUE_CHANGED) {
         /* Get current text content (even though it's masked) */
-        const char * text = lv_textarea_get_text(textarea2);
+        const char * text = lv_textarea_get_text(textarea);
         printf("Password field content changed (length: %d)\n", (int)strlen(text));
         
         /* Optional: Limit password length */
@@ -631,12 +706,12 @@ static void textarea2_event_cb(lv_event_t * e)
             char truncated[21];
             strncpy(truncated, text, 20);
             truncated[20] = '\0';
-            lv_textarea_set_text(textarea2, truncated);
+            lv_textarea_set_text(textarea, truncated);
         }
     }
     else if (code == LV_EVENT_READY) {
         /* This event is triggered when Enter is pressed */
-        const char * text = lv_textarea_get_text(textarea2);
+        const char * text = lv_textarea_get_text(textarea);
         printf("Password field ready (Enter pressed, length: %d)\n", (int)strlen(text));
         
         /* Simulate form submission */
@@ -645,6 +720,8 @@ static void textarea2_event_cb(lv_event_t * e)
         printf("=== End Submission ===\n");
     }
 }
+
+
 
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
@@ -693,32 +770,180 @@ static bool keyboard_queue_pop(keyboard_event_t* event)
     return true;
 }
 
+/* Clipboard functions */
+static bool copy_text_to_clipboard(const char* text)
+{
+    if (!text || strlen(text) == 0) {
+        return false;
+    }
+    
+    /* Open clipboard */
+    if (!OpenClipboard(g_hwnd)) {
+        printf("Failed to open clipboard for copy\n");
+        return false;
+    }
+    
+    /* Empty clipboard */
+    if (!EmptyClipboard()) {
+        printf("Failed to empty clipboard\n");
+        CloseClipboard();
+        return false;
+    }
+    
+    /* Allocate global memory for text */
+    size_t text_len = strlen(text) + 1;
+    HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, text_len);
+    if (!hGlobal) {
+        printf("Failed to allocate memory for clipboard\n");
+        CloseClipboard();
+        return false;
+    }
+    
+    /* Lock memory and copy text */
+    char* pGlobal = (char*)GlobalLock(hGlobal);
+    if (!pGlobal) {
+        printf("Failed to lock clipboard memory\n");
+        GlobalFree(hGlobal);
+        CloseClipboard();
+        return false;
+    }
+    
+    strcpy(pGlobal, text);
+    GlobalUnlock(hGlobal);
+    
+    /* Set clipboard data */
+    if (!SetClipboardData(CF_TEXT, hGlobal)) {
+        printf("Failed to set clipboard data\n");
+        GlobalFree(hGlobal);
+        CloseClipboard();
+        return false;
+    }
+    
+    /* Close clipboard */
+    CloseClipboard();
+    
+    printf("Text copied to clipboard: '%s'\n", text);
+    return true;
+}
+
+static char* paste_text_from_clipboard(void)
+{
+    /* Open clipboard */
+    if (!OpenClipboard(g_hwnd)) {
+        printf("Failed to open clipboard for paste\n");
+        return NULL;
+    }
+    
+    /* Get clipboard data */
+    HANDLE hData = GetClipboardData(CF_TEXT);
+    if (!hData) {
+        printf("No text data in clipboard\n");
+        CloseClipboard();
+        return NULL;
+    }
+    
+    /* Lock memory and get text */
+    char* pData = (char*)GlobalLock(hData);
+    if (!pData) {
+        printf("Failed to lock clipboard data\n");
+        CloseClipboard();
+        return NULL;
+    }
+    
+    /* Allocate memory for return value */
+    size_t data_len = strlen(pData) + 1;
+    char* result = (char*)malloc(data_len);
+    if (!result) {
+        printf("Failed to allocate memory for pasted text\n");
+        GlobalUnlock(hData);
+        CloseClipboard();
+        return NULL;
+    }
+    
+    /* Copy text */
+    strcpy(result, pData);
+    
+    /* Unlock and close */
+    GlobalUnlock(hData);
+    CloseClipboard();
+    
+    printf("Text pasted from clipboard: '%s'\n", result);
+    return result;
+}
+
+/* Calculate dynamic repeat interval for long press acceleration */
+static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration)
+{
+    /* Base intervals in milliseconds */
+    uint32_t initial_delay = 500;      /* Initial delay before repeating starts */
+    uint32_t base_interval = 80;       /* Base repeat interval */
+    uint32_t min_interval = 8;         /* Minimum interval (maximum speed) */
+    
+    /* Special handling for delete/backspace keys - they accelerate faster */
+    bool is_delete_key = (key == LV_KEY_BACKSPACE || key == LV_KEY_DEL);
+    if (is_delete_key) {
+        base_interval = 40;
+        min_interval = 2;
+    }
+    
+    /* Don't start repeating until initial delay has passed */
+    if (press_duration < initial_delay) {
+        return initial_delay - press_duration;
+    }
+    
+    /* Calculate acceleration based on repeat count */
+    /* Formula: interval = base_interval * (0.9 ^ repeat_count) */
+    /* But with a minimum limit */
+    double acceleration_factor = pow(0.85, repeat_count);
+    uint32_t interval = (uint32_t)(base_interval * acceleration_factor);
+    
+    /* Ensure we don't go below minimum interval */
+    if (interval < min_interval) {
+        interval = min_interval;
+    }
+    
+    printf("Long press acceleration: key=0x%X, repeat=%d, duration=%d, interval=%d\n", 
+           key, repeat_count, press_duration, interval);
+    
+    return interval;
+}
+
+/* Reset long press state when key is released or different key is pressed */
+static void reset_long_press_state(void)
+{
+    if (long_press_key != 0) {
+        printf("Resetting long press state for key 0x%X (had %d repeats)\n", 
+               long_press_key, long_press_repeat_count);
+    }
+    
+    long_press_key = 0;
+    long_press_start_time = 0;
+    long_press_last_repeat = 0;
+    long_press_repeat_count = 0;
+}
+
 static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
     static DWORD last_read_time = 0;
     DWORD current_time = GetTickCount();
     
-    /* More aggressive queue processing for faster response */
+    /* Faster processing for delete/backspace keys */
+    bool is_delete_key = (current_keyboard_data.key == LV_KEY_BACKSPACE || 
+                         current_keyboard_data.key == LV_KEY_DEL);
+    uint32_t read_interval = is_delete_key ? 2 : 15; /* 2ms for delete keys, 15ms for others */
+    
+    /* Process next key from queue if current key is released or enough time passed */
     if (current_keyboard_data.state == LV_INDEV_STATE_RELEASED || 
-        (current_time - last_read_time) > 15) { /* 15ms minimum between key events for responsive typing */
+        (current_time - last_read_time) > read_interval) {
         
         keyboard_event_t next_event;
         if (keyboard_queue_pop(&next_event)) {
             current_keyboard_data = next_event;
             last_read_time = current_time;
-            printf("Processing keyboard event: key=0x%X, state=%d\n", 
-                   next_event.key, next_event.state);
-        }
-    }
-    
-    /* Process additional events if queue has multiple items to reduce latency */
-    if (current_keyboard_data.state == LV_INDEV_STATE_RELEASED) {
-        keyboard_event_t next_event;
-        if (keyboard_queue_pop(&next_event)) {
-            current_keyboard_data = next_event;
-            last_read_time = current_time;
-            printf("Fast-processing additional keyboard event: key=0x%X, state=%d\n", 
-                   next_event.key, next_event.state);
+            printf("Processing keyboard event: key=0x%X ('%c'), state=%d\n", 
+                   next_event.key, 
+                   (next_event.key >= 32 && next_event.key <= 126) ? (char)next_event.key : '?',
+                   next_event.state);
         }
     }
     
@@ -726,9 +951,11 @@ static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data)
     data->key = current_keyboard_data.key;
     data->state = current_keyboard_data.state;
     
-    /* Auto-release pressed keys after a short delay to ensure LVGL processes them */
+    /* Auto-release pressed keys after a short delay */
+    /* Faster release for delete keys to enable rapid repeat */
+    uint32_t release_time = is_delete_key ? 2 : 10;
     if (current_keyboard_data.state == LV_INDEV_STATE_PRESSED && 
-        (current_time - current_keyboard_data.timestamp) > 10) { /* 10ms press duration for faster response */
+        (current_time - current_keyboard_data.timestamp) > release_time) {
         current_keyboard_data.state = LV_INDEV_STATE_RELEASED;
     }
 }
@@ -884,19 +1111,87 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             uint32_t key = (uint32_t)wParam;
             DWORD current_time = GetTickCount();
             
-            /* Anti-bounce: ignore if same key pressed too quickly */
-            if (current_time - last_key_time < 5) { /* 5ms debounce - reduced for faster typing */
-                return 0;
-            }
-            last_key_time = current_time;
+            /* Long press acceleration logic */
+            bool should_process = false;
             
-            printf("Key pressed: 0x%X (%d)\n", key, key);
+            if (long_press_key == key) {
+                /* Same key being held down - check if we should repeat */
+                DWORD press_duration = current_time - long_press_start_time;
+                DWORD since_last_repeat = current_time - long_press_last_repeat;
+                
+                uint32_t required_interval = get_repeat_interval(key, long_press_repeat_count, press_duration);
+                
+                if (since_last_repeat >= required_interval) {
+                    should_process = true;
+                    long_press_last_repeat = current_time;
+                    long_press_repeat_count++;
+                }
+            } else {
+                /* New key or first press of this key */
+                reset_long_press_state();
+                long_press_key = key;
+                long_press_start_time = current_time;
+                long_press_last_repeat = current_time;
+                long_press_repeat_count = 0;
+                should_process = true;
+            }
+            
+            if (!should_process) {
+                return 0; /* Skip this key event */
+            }
+            
+            printf("Key pressed: 0x%X (%d) [repeat=%d, duration=%dms]\n", 
+                   key, key, long_press_repeat_count, current_time - long_press_start_time);
             
             /* Check NumLock state for numpad handling */
             bool numlock_on = (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
             
+            /* Check for Ctrl key combinations */
+            bool ctrl_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            
             /* Convert Windows virtual key codes to LVGL key codes */
             uint32_t lv_key = 0;
+            
+            /* Handle Ctrl+A for select all */
+            if (ctrl_pressed && key == 'A') {
+                printf("Ctrl+A detected - Select All\n");
+                lv_key = LV_KEY_CTRL_A; /* Use our custom key code for Ctrl+A */
+                /* We'll handle the actual select all in the textarea event handler */
+            }
+            /* Handle Ctrl+C for copy */
+            else if (ctrl_pressed && key == 'C') {
+                printf("Ctrl+C detected - Copy\n");
+                /* Get the currently focused textarea */
+                lv_obj_t * active_ta = lv_group_get_focused(g_keyboard_group);
+                if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
+                    const char * text = lv_textarea_get_text(active_ta);
+                    if (text && strlen(text) > 0) {
+                        copy_text_to_clipboard(text);
+                    } else {
+                        printf("No text to copy\n");
+                    }
+                } else {
+                    printf("No active textarea for copy\n");
+                }
+                return 0; /* Don't forward to LVGL */
+            }
+            /* Handle Ctrl+V for paste */
+            else if (ctrl_pressed && key == 'V') {
+                printf("Ctrl+V detected - Paste\n");
+                /* Get the currently focused textarea */
+                lv_obj_t * active_ta = lv_group_get_focused(g_keyboard_group);
+                if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
+                    char * pasted_text = paste_text_from_clipboard();
+                    if (pasted_text) {
+                        /* Replace current text with pasted text */
+                        lv_textarea_set_text(active_ta, pasted_text);
+                        free(pasted_text);
+                    }
+                } else {
+                    printf("No active textarea for paste\n");
+                }
+                return 0; /* Don't forward to LVGL */
+            } else {
             switch (key) {
                 case VK_UP:       lv_key = LV_KEY_UP; break;
                 case VK_DOWN:     lv_key = LV_KEY_DOWN; break;
@@ -904,7 +1199,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case VK_RIGHT:    lv_key = LV_KEY_RIGHT; break;
                 case VK_ESCAPE:   lv_key = LV_KEY_ESC; break;
                 case VK_DELETE:   lv_key = LV_KEY_DEL; break;
-                case VK_BACK:     lv_key = LV_KEY_BACKSPACE; break;
+                case VK_BACK:     
+                    lv_key = LV_KEY_BACKSPACE; 
+                    printf("Backspace key detected, mapping to LV_KEY_BACKSPACE (0x%X)\n", LV_KEY_BACKSPACE);
+                    break;
                 case VK_RETURN:   lv_key = LV_KEY_ENTER; break;
                 case VK_TAB:      lv_key = LV_KEY_NEXT; break;
                 case VK_HOME:     lv_key = LV_KEY_HOME; break;
@@ -928,6 +1226,41 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case VK_SUBTRACT: lv_key = '-'; break; /* Numpad - */
                 case VK_DIVIDE:   lv_key = '/'; break; /* Numpad / */
                 case VK_DECIMAL:  lv_key = '.'; break; /* Numpad . */
+                
+                /* Handle common punctuation keys directly */
+                case VK_OEM_PERIOD: /* . > */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '>' : '.'; 
+                    break;
+                case VK_OEM_COMMA:  /* , < */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '<' : ','; 
+                    break;
+                case VK_OEM_2:      /* /? key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '?' : '/'; 
+                    break;
+                case VK_OEM_1:      /* ;: key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? ':' : ';'; 
+                    break;
+                case VK_OEM_7:      /* '" key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '"' : '\''; 
+                    break;
+                case VK_OEM_4:      /* [{ key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '{' : '['; 
+                    break;
+                case VK_OEM_6:      /* ]} key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '}' : ']'; 
+                    break;
+                case VK_OEM_5:      /* \| key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '|' : '\\'; 
+                    break;
+                case VK_OEM_3:      /* `~ key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '~' : '`'; 
+                    break;
+                case VK_OEM_MINUS:  /* -_ key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '_' : '-'; 
+                    break;
+                case VK_OEM_PLUS:   /* =+ key */
+                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '+' : '='; 
+                    break;
                 default:
                     /* Process printable characters (letters, numbers, symbols) */
                     /* Support both uppercase VK codes (0x41-0x5A) and lowercase ASCII (0x61-0x7A) */
@@ -935,7 +1268,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     bool is_number = (key >= 0x30 && key <= 0x39); /* VK_0 to VK_9 */
                     
                     if (is_letter || is_number || key == VK_SPACE || 
-                        (key >= VK_OEM_1 && key <= VK_OEM_3) || (key >= VK_OEM_4 && key <= VK_OEM_8)) {
+                        (key >= VK_OEM_1 && key <= VK_OEM_3) || (key >= VK_OEM_4 && key <= VK_OEM_8) ||
+                        key == VK_OEM_MINUS || key == VK_OEM_PLUS) {
                         
                         if (is_letter) {
                             /* Handle both uppercase VK codes and lowercase ASCII */
@@ -964,7 +1298,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         /* For other keys, let WM_CHAR handle them */
                     }
                     break;
-            }
+            } /* end of switch */
+            } /* end of else (not Ctrl+A) */
             
             if (lv_key != 0) {
                 char key_name[32] = "";
@@ -975,6 +1310,17 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     case VK_ADD: strcpy(key_name, "NumPad+"); break;
                     case VK_SUBTRACT: strcpy(key_name, "NumPad-"); break;
                     case VK_DECIMAL: strcpy(key_name, "NumPad."); break;
+                    case VK_OEM_1: strcpy(key_name, ";:"); break;
+                    case VK_OEM_2: strcpy(key_name, "/?"); break;
+                    case VK_OEM_3: strcpy(key_name, "`~"); break;
+                    case VK_OEM_4: strcpy(key_name, "[{"); break;
+                    case VK_OEM_5: strcpy(key_name, "\\|"); break;
+                    case VK_OEM_6: strcpy(key_name, "]}"); break;
+                    case VK_OEM_7: strcpy(key_name, "'\""); break;
+                    case VK_OEM_MINUS: strcpy(key_name, "-_"); break;
+                    case VK_OEM_PLUS: strcpy(key_name, "=+"); break;
+                    case VK_OEM_PERIOD: strcpy(key_name, ".>"); break;
+                    case VK_OEM_COMMA: strcpy(key_name, ",<"); break;
                     case VK_NUMPAD0: case VK_NUMPAD1: case VK_NUMPAD2: case VK_NUMPAD3: case VK_NUMPAD4:
                     case VK_NUMPAD5: case VK_NUMPAD6: case VK_NUMPAD7: case VK_NUMPAD8: case VK_NUMPAD9:
                         sprintf(key_name, "NumPad%d", key - VK_NUMPAD0); break;
@@ -996,30 +1342,44 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
+            uint32_t key = (uint32_t)wParam;
+            
+            /* Reset long press state when key is released */
+            if (long_press_key == key) {
+                reset_long_press_state();
+            }
+            
             /* For most keys, we don't need to track key-up events for LVGL text input */
             return 0;
         }
         case WM_CHAR: {
-            /* Handle special character input that wasn't handled in WM_KEYDOWN */
+            /* Handle character input that wasn't handled in WM_KEYDOWN */
             uint32_t character = (uint32_t)wParam;
             DWORD current_time = GetTickCount();
             
             /* Only process characters not already handled in WM_KEYDOWN */
-            /* Skip letters (a-z, A-Z), numbers (0-9), and space as they're handled in WM_KEYDOWN */
+            /* Skip letters, numbers, space, and common punctuation handled in WM_KEYDOWN */
             bool already_handled = ((character >= 'a' && character <= 'z') || 
                                    (character >= 'A' && character <= 'Z') || 
                                    (character >= '0' && character <= '9') || 
-                                   character == ' ');
+                                   character == ' ' || character == '.' || character == ',' ||
+                                   character == '/' || character == '?' || character == ';' ||
+                                   character == ':' || character == '\'' || character == '"' ||
+                                   character == '<' || character == '>');
             
-            if (!already_handled && character >= 32 && character <= 126) {
+            /* Process printable characters including extended ASCII */
+            if (!already_handled && ((character >= 32 && character <= 126) || (character >= 160 && character <= 255))) {
                 /* Anti-bounce for character input */
                 if (current_time - last_key_time >= 2) { /* 2ms debounce for chars - very responsive */
-                    printf("WM_CHAR processing special character: '%c' (0x%X)\n", (char)character, character);
+                    printf("WM_CHAR processing character: '%c' (0x%X)\n", 
+                           (character >= 32 && character <= 126) ? (char)character : '?', character);
                     keyboard_queue_push(character, LV_INDEV_STATE_PRESSED);
                     last_key_time = current_time;
                 }
             } else {
-                printf("WM_CHAR ignored (already handled): '%c' (0x%X)\n", (char)character, character);
+                printf("WM_CHAR ignored%s: '%c' (0x%X)\n", 
+                       already_handled ? " (already handled)" : " (non-printable)", 
+                       (character >= 32 && character <= 126) ? (char)character : '?', character);
             }
             return 0;
         }
@@ -1187,3 +1547,4 @@ void init_gdiplus() {
 void cleanup_gdiplus() {
     GdiplusShutdown(gdiplusToken);
 }
+
