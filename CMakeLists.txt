@@ -30,6 +30,7 @@ endif()
 # Add UI source files
 set(UI_SOURCES
     ui/setting.c
+    ui/maincontainer.c
     ui/titlebar.c
 )
 

@@ -1,6 +1,8 @@
 #define USE_OPENGL 1
 
 #include "lvgl/lvgl.h"
+#include "ui/custom_keys.h"
+#include "ui/maincontainer.h"
 #include "ui/setting.h"
 #include "ui/titlebar.h"
 #include <windows.h>
@@ -14,11 +16,6 @@
 #endif
 #include <gdiplus.h>
 using namespace Gdiplus;
-
-/* Custom key codes for special combinations */
-#define LV_KEY_CTRL_A 0x1001  /* Custom key code for Ctrl+A */
-#define LV_KEY_CTRL_C 0x1002  /* Custom key code for Ctrl+C */
-#define LV_KEY_CTRL_V 0x1003  /* Custom key code for Ctrl+V */
 
 /* Define macros for extracting coordinates from LPARAM */
 #ifndef GET_X_LPARAM
@@ -41,7 +38,6 @@ using namespace Gdiplus;
 static lv_display_t * display;
 static lv_indev_t * indev_mouse;
 static lv_indev_t * indev_keyboard;
-static lv_group_t * g_keyboard_group = NULL;  /* Global keyboard group for clipboard operations */
 static uint16_t buf1[800 * 600 / 10];
 static uint16_t buf2[800 * 600 / 10];
 static lv_indev_data_t mouse_data;
@@ -93,12 +89,6 @@ static int g_win_start_y = 0;
  ***********************/
 static void hal_init(void);
 static void ui_init(void);
-static void btn_event_cb(lv_event_t * e);
-static void slider_event_cb(lv_event_t * e);
-static void dropdown_event_cb(lv_event_t * e);
-static void textarea_event_cb(lv_event_t * e);
-static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
-static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
 
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
@@ -383,305 +373,22 @@ static void ui_init(void)
     /* Titlebar: create a thin bar at the top implemented with LVGL */
     const int title_h = TITLEBAR_HEIGHT; /* Use constant from titlebar.h */
     lv_obj_t * title_bar = titlebar_create(screen, g_width);
+    LV_UNUSED(title_bar);
 
-    /* Content container sits below the title bar and contains the app UI */
-    lv_obj_t * content = lv_obj_create(screen);
-    lv_obj_set_size(content, g_width+3, g_height - title_h+4);
-    lv_obj_set_pos(content, 0-2, title_h-4);
-    lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
+    /* Create primary content container via dedicated module */
+    lv_obj_t * content = maincontainer_create(screen, g_width, g_height, title_h);
+    LV_UNUSED(content);
 
-    /* Rounded corners for content area for a modern look */
-    lv_obj_set_style_radius(content, 0, 0);
-    lv_obj_set_style_clip_corner(content, true, 0); /* clip children to rounded corners */
-    
-    /* Disable shadow for content container */
-    lv_obj_set_style_shadow_width(content, 0, 0);
-    lv_obj_set_style_shadow_opa(content, LV_OPA_TRANSP, 0);
-
-    /* Disable scrolling on the main content so users cannot swipe left/right */
-    lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(content, LV_DIR_NONE);
-    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_OFF);
-
-    /* Create a simple button inside content (top-left area) */
-    lv_obj_t * btn = lv_btn_create(content);
-    lv_obj_set_size(btn, 120, 50);
-    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20, 20);
-    lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-    lv_obj_t * label = lv_label_create(btn);
-    lv_label_set_text(label, "Click Me!");
-    lv_obj_center(label);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_radius(btn, 12, 0);
-
-    /* Slider in top-right area (in content) */
-    lv_obj_t * slider = lv_slider_create(content);
-    lv_obj_set_size(slider, 200, 25);
-    lv_obj_align(slider, LV_ALIGN_TOP_RIGHT, -20, 20);
-    lv_slider_set_value(slider, 50, LV_ANIM_OFF);
-    lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-
-    /* Dropdown in center area */
-    lv_obj_t * dropdown = lv_dropdown_create(content);
-    lv_dropdown_set_options(dropdown, "Option 1\nOption 2\nOption 3\nOption 4\nOption 5");
-    lv_obj_set_size(dropdown, 180, 40);
-    lv_obj_align(dropdown, LV_ALIGN_CENTER, 0, -50);
-    lv_obj_add_event_cb(dropdown, dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    
-    /* Style the dropdown */
-    lv_obj_set_style_radius(dropdown, 8, 0);
-    lv_obj_set_style_bg_color(dropdown, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(dropdown, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_set_style_border_width(dropdown, 1, 0);
-
-    /* First text area (username input) - bottom left area */
-    lv_obj_t * textarea = lv_textarea_create(content);
-    lv_obj_set_size(textarea, 280, 45); /* Wider for better UX */
-    lv_obj_align(textarea, LV_ALIGN_BOTTOM_LEFT, 20, -80); /* Bottom area with margin */
-    lv_textarea_set_placeholder_text(textarea, "Username...");
-    lv_textarea_set_text(textarea, "");
-    /* 设置用户数据标识第一个输入框 */
-    lv_obj_set_user_data(textarea, (void*)1);
-    lv_obj_add_event_cb(textarea, textarea_event_cb, LV_EVENT_ALL, NULL);
-    
-    /* Style the first textarea */
-    lv_obj_set_style_radius(textarea, 8, 0);
-    lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_set_style_border_width(textarea, 2, 0);
-    lv_obj_set_style_pad_all(textarea, 8, 0);
-    
-    /* Focus border color */
-    lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(textarea, 2, LV_STATE_FOCUSED);
-    
-    /* Create a group for keyboard navigation and assign textarea to it */
-    g_keyboard_group = lv_group_create();
-    lv_group_add_obj(g_keyboard_group, textarea);
-    lv_indev_set_group(indev_keyboard, g_keyboard_group);
-    
-    /* Set textarea as focused by default so it can receive keyboard input */
-    lv_obj_add_state(textarea, LV_STATE_FOCUSED);
-
-    /* Second text area (password input) - below first textarea */
-    lv_obj_t * textarea2 = lv_textarea_create(content);
-    lv_obj_set_size(textarea2, 280, 45); /* Same width as first textarea */
-    lv_obj_align_to(textarea2, textarea, LV_ALIGN_OUT_BOTTOM_MID, 0, 10); /* Below first textarea */
-    lv_textarea_set_placeholder_text(textarea2, "Password...");
-    lv_textarea_set_text(textarea2, "");
-    lv_textarea_set_password_mode(textarea2, true); /* Enable password mode */
-    /* 设置用户数据标识第二个输入框 */
-    lv_obj_set_user_data(textarea2, (void*)2);
-    lv_obj_add_event_cb(textarea2, textarea_event_cb, LV_EVENT_ALL, NULL);
-    
-    /* Style the second textarea */
-    lv_obj_set_style_radius(textarea2, 8, 0);
-    lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E1), 0); /* Light yellow background */
-    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xCCCCCC), 0);
-    lv_obj_set_style_border_width(textarea2, 2, 0);
-    lv_obj_set_style_pad_all(textarea2, 8, 0);
-    
-    /* Focus border color for second textarea */
-    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFF9800), LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(textarea2, 2, LV_STATE_FOCUSED);
-    
-    /* Add second textarea to keyboard group */
-    lv_group_add_obj(g_keyboard_group, textarea2);
-
-    /* Status label in bottom-right corner */
-    lv_obj_t * status = lv_label_create(content);
-    lv_label_set_text(status, "UI Layout: Modern arrangement\nKeyboard navigation enabled");
-    lv_obj_align(status, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
-    lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
-
-    /* Initialize settings system */
-    settings_init();
-    
-    /* Create settings button in top-right corner */
-    lv_obj_t * settings_btn = settings_create_button(content);
-    
-    printf("Settings button added to UI\n");
+    /* Attach keyboard group provided by the main container to the keyboard indev */
+    lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
+    if (keyboard_group) {
+        lv_indev_set_group(indev_keyboard, keyboard_group);
+    }
 
     /* Force screen refresh */
     lv_obj_invalidate(screen);
     lv_refr_now(display);
 }
-
-static void btn_event_cb(lv_event_t * e)
-{
-    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
-    lv_obj_t * label = lv_obj_get_child(btn, 0);
-    
-    static bool clicked = false;
-    clicked = !clicked;
-    
-    if(clicked) {
-        lv_label_set_text(label, "Clicked!");
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x4CAF50), 0);
-        printf("*** BUTTON CLICKED - UI INTERACTION WORKS! ***\n");
-    } else {
-        lv_label_set_text(label, "Click Me!");
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-        printf("*** BUTTON RESET ***\n");
-    }
-    /* Force a redraw of the button to avoid visual artifacts */
-    lv_obj_invalidate(btn);
-}
-
-static void slider_event_cb(lv_event_t * e)
-{
-    lv_obj_t * slider = (lv_obj_t*)lv_event_get_target(e);
-    int32_t v = lv_slider_get_value(slider);
-    /* Keep slider visuals consistent: invalidate the slider and parent screen */
-    lv_obj_invalidate(slider);
-    lv_obj_invalidate(lv_obj_get_parent(slider));
-    printf("Slider changed: %d\n", (int)v);
-}
-
-static void dropdown_event_cb(lv_event_t * e)
-{
-    lv_obj_t * dropdown = (lv_obj_t*)lv_event_get_target(e);
-    uint16_t selected = lv_dropdown_get_selected(dropdown);
-    
-    /* Get the selected option text */
-    char option_text[32];
-    lv_dropdown_get_selected_str(dropdown, option_text, sizeof(option_text));
-    
-    printf("Dropdown selection changed: Index=%d, Text='%s'\n", selected, option_text);
-    
-    /* Force a redraw of the dropdown */
-    lv_obj_invalidate(dropdown);
-}
-
-/* 通用输入框事件回调函数 */
-static void textarea_event_cb(lv_event_t * e)
-{
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * textarea = (lv_obj_t*)lv_event_get_target(e);
-    
-    /* 通用处理逻辑 */
-    if (code == LV_EVENT_KEY) {
-        /* 处理键盘事件 */
-        uint32_t key = lv_indev_get_key(lv_indev_get_act());
-        if (key == LV_KEY_CTRL_A) {
-            /* Ctrl+A 全选功能 - 通用逻辑 */
-            printf("Executing select all in textarea\n");
-            const char * text = lv_textarea_get_text(textarea);
-            if (text && strlen(text) > 0) {
-                /* LVGL textarea select all implementation */
-                lv_textarea_set_cursor_pos(textarea, 0);
-                uint32_t text_len = strlen(text);
-                lv_textarea_set_cursor_pos(textarea, text_len);
-                printf("Selected all text in textarea: '%s' (length: %d)\n", text, text_len);
-            }
-            return; /* 处理完毕，不需要调用自定义处理函数 */
-        } else if (key == LV_KEY_ESC) {
-            /* ESC键处理 */
-            printf("ESC key pressed\n");
-            return;
-        }
-    }
-    
-    /* 根据textarea对象确定调用哪个自定义处理函数 */
-    /* 通过用户数据区分不同的textarea */
-    void * user_data = lv_obj_get_user_data(textarea);
-    if (user_data == (void*)1) {
-        /* 第一个textarea (username) */
-        textarea_custom_handler(textarea, code);
-    } else if (user_data == (void*)2) {
-        /* 第二个textarea (password) */
-        textarea2_custom_handler(textarea, code);
-    } else {
-        /* 默认处理第一个textarea */
-        textarea_custom_handler(textarea, code);
-    }
-}
-
-/* 第一个输入框（用户名）的自定义处理函数 */
-static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
-{
-    if (code == LV_EVENT_CLICKED) {
-        printf("Textarea clicked - ready for input\n");
-    }
-    else if (code == LV_EVENT_FOCUSED) {
-        printf("Textarea focused\n");
-        /* Change border color when focused */
-        lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), 0);
-    }
-    else if (code == LV_EVENT_DEFOCUSED) {
-        printf("Textarea defocused\n");
-        /* Restore normal border color when unfocused */
-        lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
-    }
-    else if (code == LV_EVENT_VALUE_CHANGED) {
-        /* Get current text content */
-        const char * text = lv_textarea_get_text(textarea);
-        printf("Textarea content changed: '%s'\n", text);
-        
-        /* Optional: Limit text length */
-        if (strlen(text) > 100) {
-            printf("Text too long, truncating...\n");
-            char truncated[101];
-            strncpy(truncated, text, 100);
-            truncated[100] = '\0';
-            lv_textarea_set_text(textarea, truncated);
-        }
-    }
-    else if (code == LV_EVENT_READY) {
-        /* This event is triggered when Enter is pressed (in one-line mode) */
-        const char * text = lv_textarea_get_text(textarea);
-        printf("Textarea ready (Enter pressed): '%s'\n", text);
-    }
-}
-
-/* 第二个输入框（密码）的自定义处理函数 */
-static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
-{
-    if (code == LV_EVENT_CLICKED) {
-        printf("Password field clicked - ready for input\n");
-    }
-    else if (code == LV_EVENT_FOCUSED) {
-        printf("Password field focused\n");
-        /* Change border color when focused */
-        lv_obj_set_style_border_color(textarea, lv_color_hex(0xFF9800), 0);
-        lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF3E0), 0); /* Slightly darker when focused */
-    }
-    else if (code == LV_EVENT_DEFOCUSED) {
-        printf("Password field defocused\n");
-        /* Restore normal border color when unfocused */
-        lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
-        lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF8E1), 0); /* Back to light yellow */
-    }
-    else if (code == LV_EVENT_VALUE_CHANGED) {
-        /* Get current text content (even though it's masked) */
-        const char * text = lv_textarea_get_text(textarea);
-        printf("Password field content changed (length: %d)\n", (int)strlen(text));
-        
-        /* Optional: Limit password length */
-        if (strlen(text) > 20) {
-            printf("Password too long, truncating to 20 characters...\n");
-            char truncated[21];
-            strncpy(truncated, text, 20);
-            truncated[20] = '\0';
-            lv_textarea_set_text(textarea, truncated);
-        }
-    }
-    else if (code == LV_EVENT_READY) {
-        /* This event is triggered when Enter is pressed */
-        const char * text = lv_textarea_get_text(textarea);
-        printf("Password field ready (Enter pressed, length: %d)\n", (int)strlen(text));
-        
-        /* Simulate form submission */
-        printf("=== Form Submission Simulation ===\n");
-        printf("Password: [HIDDEN] (length: %d)\n", (int)strlen(text));
-        printf("=== End Submission ===\n");
-    }
-}
-
-
 
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
 {
@@ -1059,7 +766,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             else if (ctrl_pressed && key == 'C') {
                 printf("Ctrl+C detected - Copy\n");
                 /* Get the currently focused textarea */
-                lv_obj_t * active_ta = lv_group_get_focused(g_keyboard_group);
+                lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
+                lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
                 if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
                     const char * text = lv_textarea_get_text(active_ta);
                     if (text && strlen(text) > 0) {
@@ -1076,7 +784,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             else if (ctrl_pressed && key == 'V') {
                 printf("Ctrl+V detected - Paste\n");
                 /* Get the currently focused textarea */
-                lv_obj_t * active_ta = lv_group_get_focused(g_keyboard_group);
+                lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
+                lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
                 if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
                     char * pasted_text = paste_text_from_clipboard();
                     if (pasted_text) {
