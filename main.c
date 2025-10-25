@@ -892,6 +892,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             
             printf("Key pressed: 0x%X (%d)\n", key, key);
             
+            /* Check NumLock state for numpad handling */
+            bool numlock_on = (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
+            
             /* Convert Windows virtual key codes to LVGL key codes */
             uint32_t lv_key = 0;
             switch (key) {
@@ -906,18 +909,47 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case VK_TAB:      lv_key = LV_KEY_NEXT; break;
                 case VK_HOME:     lv_key = LV_KEY_HOME; break;
                 case VK_END:      lv_key = LV_KEY_END; break;
+                
+                /* Handle numpad keys when NumLock is OFF (they act as navigation keys) */
+                case VK_NUMPAD0:  lv_key = numlock_on ? '0' : VK_INSERT; break;
+                case VK_NUMPAD1:  lv_key = numlock_on ? '1' : VK_END; break;
+                case VK_NUMPAD2:  lv_key = numlock_on ? '2' : VK_DOWN; break;
+                case VK_NUMPAD3:  lv_key = numlock_on ? '3' : VK_NEXT; break;
+                case VK_NUMPAD4:  lv_key = numlock_on ? '4' : VK_LEFT; break;
+                case VK_NUMPAD5:  lv_key = numlock_on ? '5' : 0; break; /* No function when NumLock off */
+                case VK_NUMPAD6:  lv_key = numlock_on ? '6' : VK_RIGHT; break;
+                case VK_NUMPAD7:  lv_key = numlock_on ? '7' : VK_HOME; break;
+                case VK_NUMPAD8:  lv_key = numlock_on ? '8' : VK_UP; break;
+                case VK_NUMPAD9:  lv_key = numlock_on ? '9' : VK_PRIOR; break;
+                
+                /* Handle numpad operator keys - these work regardless of NumLock */
+                case VK_MULTIPLY: lv_key = '*'; break; /* Numpad * */
+                case VK_ADD:      lv_key = '+'; break; /* Numpad + */
+                case VK_SUBTRACT: lv_key = '-'; break; /* Numpad - */
+                case VK_DIVIDE:   lv_key = '/'; break; /* Numpad / */
+                case VK_DECIMAL:  lv_key = '.'; break; /* Numpad . */
                 default:
                     /* Process printable characters (letters, numbers, symbols) */
-                    if ((key >= 'A' && key <= 'Z') || (key >= 0x30 && key <= 0x39) || 
-                        key == VK_SPACE || (key >= VK_OEM_1 && key <= VK_OEM_3) || 
-                        (key >= VK_OEM_4 && key <= VK_OEM_8)) {
-                        /* Convert to lowercase for letters, use as-is for others */
-                        if (key >= 'A' && key <= 'Z') {
-                            /* Check if Shift is pressed */
-                            bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                            lv_key = shift_pressed ? key : (key + 32); /* Convert to lowercase if no shift */
-                        } else if (key >= 0x30 && key <= 0x39) { /* VK_0 to VK_9 */
-                            /* Check if Shift is pressed for symbols on number keys */
+                    /* Support both uppercase VK codes (0x41-0x5A) and lowercase ASCII (0x61-0x7A) */
+                    bool is_letter = (key >= 'A' && key <= 'Z') || (key >= 'a' && key <= 'z');
+                    bool is_number = (key >= 0x30 && key <= 0x39); /* VK_0 to VK_9 */
+                    
+                    if (is_letter || is_number || key == VK_SPACE || 
+                        (key >= VK_OEM_1 && key <= VK_OEM_3) || (key >= VK_OEM_4 && key <= VK_OEM_8)) {
+                        
+                        if (is_letter) {
+                            /* Handle both uppercase VK codes and lowercase ASCII */
+                            if (key >= 'A' && key <= 'Z') {
+                                /* Standard VK_A to VK_Z codes */
+                                bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                                lv_key = shift_pressed ? key : (key + 32); /* Convert to lowercase if no shift */
+                            } else if (key >= 'a' && key <= 'z') {
+                                /* Direct lowercase codes - use as is or convert to uppercase if shift */
+                                bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+                                lv_key = shift_pressed ? (key - 32) : key; /* Convert to uppercase if shift */
+                            }
+                        } else if (is_number) {
+                            /* Main number row keys */
                             bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
                             if (shift_pressed) {
                                 /* Handle shifted number keys: )!@#$%^&*( */
@@ -935,10 +967,30 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             }
             
             if (lv_key != 0) {
-                printf("WM_KEYDOWN processing: VK=0x%X, lv_key=0x%X ('%c')\n", key, lv_key, (char)lv_key);
+                char key_name[32] = "";
+                /* Add key name for common keys */
+                switch (key) {
+                    case VK_MULTIPLY: strcpy(key_name, "NumPad*"); break;
+                    case VK_DIVIDE: strcpy(key_name, "NumPad/"); break;
+                    case VK_ADD: strcpy(key_name, "NumPad+"); break;
+                    case VK_SUBTRACT: strcpy(key_name, "NumPad-"); break;
+                    case VK_DECIMAL: strcpy(key_name, "NumPad."); break;
+                    case VK_NUMPAD0: case VK_NUMPAD1: case VK_NUMPAD2: case VK_NUMPAD3: case VK_NUMPAD4:
+                    case VK_NUMPAD5: case VK_NUMPAD6: case VK_NUMPAD7: case VK_NUMPAD8: case VK_NUMPAD9:
+                        sprintf(key_name, "NumPad%d", key - VK_NUMPAD0); break;
+                    default: 
+                        if (key >= 'A' && key <= 'Z') sprintf(key_name, "Key_%c", (char)key);
+                        else if (key >= '0' && key <= '9') sprintf(key_name, "Key_%c", (char)key);
+                        break;
+                }
+                
+                printf("WM_KEYDOWN processing: VK=0x%X (%s), lv_key=0x%X ('%c'), NumLock=%s\n", 
+                       key, key_name[0] ? key_name : "Unknown", lv_key, 
+                       (lv_key >= 32 && lv_key <= 126) ? (char)lv_key : '?', 
+                       numlock_on ? "ON" : "OFF");
                 keyboard_queue_push(lv_key, LV_INDEV_STATE_PRESSED);
             } else {
-                printf("WM_KEYDOWN ignored: VK=0x%X\n", key);
+                printf("WM_KEYDOWN ignored: VK=0x%X, NumLock=%s\n", key, numlock_on ? "ON" : "OFF");
             }
             return 0;
         }
