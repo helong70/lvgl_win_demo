@@ -41,6 +41,7 @@ set(PLATFORM_SOURCES
 # Force C++ compilation for main.c (since it contains C++ code)
 set_source_files_properties(${MAIN_SOURCE} PROPERTIES LANGUAGE CXX)
 set_source_files_properties(${UI_SOURCES} PROPERTIES LANGUAGE CXX)
+set_source_files_properties(${PLATFORM_SOURCES} PROPERTIES LANGUAGE CXX)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})

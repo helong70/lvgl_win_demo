@@ -64,19 +64,17 @@ static DWORD long_press_last_repeat = 0;   /* Last time the key was repeated */
 static uint32_t long_press_repeat_count = 0; /* How many times the key has repeated */
 
 #if USE_OPENGL
-/* OpenGL / windowing globals */
-static HWND g_hwnd = NULL;
-static HDC g_hdc = NULL;
-static HGLRC g_hglrc = NULL;
-static GLuint g_tex = 0;
-static uint32_t g_framebuf[800 * 600]; /* RGBA8888 framebuffer for GL texture */
-static int g_width = 800;
-static int g_height = 600;
-/* current window client size (may differ when window is resized/maximized) */
-static int g_win_w = 800;
-static int g_win_h = 600;
-/* UI scale factor (based on system DPI). Default 1.0. */
-static float g_ui_scale = 1.0f;
+/* OpenGL / windowing globals - now managed by platform module */
+#define g_hwnd (*win32_get_hwnd_ptr())
+#define g_hdc (*win32_get_hdc_ptr())
+#define g_hglrc (*win32_get_hglrc_ptr())
+#define g_tex (*win32_get_texture_ptr())
+#define g_framebuf (win32_get_framebuffer_ptr())
+#define g_width (*win32_get_width_ptr())
+#define g_height (*win32_get_height_ptr())
+#define g_win_w (*win32_get_win_w_ptr())
+#define g_win_h (*win32_get_win_h_ptr())
+#define g_ui_scale (*win32_get_ui_scale_ptr())
 /* Titlebar dragging state */
 static bool g_title_dragging = false;
 static int g_drag_start_x = 0;
@@ -1039,15 +1037,5 @@ static void cleanup_opengl(void)
 }
 #endif
 
-// 初始化 GDI+
-ULONG_PTR gdiplusToken;
-
-void init_gdiplus() {
-    GdiplusStartupInput gdiplusStartupInput;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
-}
-
-void cleanup_gdiplus() {
-    GdiplusShutdown(gdiplusToken);
-}
+/* GDI+ managed by platform module now */
 
