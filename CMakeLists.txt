@@ -27,17 +27,23 @@ if(NOT DEFINED MAIN_SOURCE)
     set(MAIN_SOURCE "main.c")
 endif()
 
+# Add UI source files
+set(UI_SOURCES
+    ui/setting.c
+)
+
 # Force C++ compilation for main.c (since it contains C++ code)
 set_source_files_properties(${MAIN_SOURCE} PROPERTIES LANGUAGE CXX)
+set_source_files_properties(${UI_SOURCES} PROPERTIES LANGUAGE CXX)
 
 # Include directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Create executable
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_executable(${PROJECT_NAME} ${MAIN_SOURCE})
+    add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES})
 else()
-    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE})
+    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES})
 endif()
 
 # Link libraries

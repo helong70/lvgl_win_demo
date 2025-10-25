@@ -1,6 +1,7 @@
 #define USE_OPENGL 1
 
 #include "lvgl/lvgl.h"
+#include "ui/setting.h"
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
@@ -303,10 +304,8 @@ static void hal_init(void)
         HDC scr = GetDC(NULL);
         int dpi = GetDeviceCaps(scr, LOGPIXELSX);
         ReleaseDC(NULL, scr);
-        g_ui_scale = (float)dpi / 96.0f;
-        if (g_ui_scale < 1.0f) g_ui_scale = 1.0f;
-        if (g_ui_scale > 3.0f) g_ui_scale = 3.0f; /* clamp reasonable max */
-        printf("System DPI=%d, UI scale=%.2f\n", dpi, g_ui_scale);
+        g_ui_scale = 1.0f; /* Force 1.0 scale for testing */
+        printf("System DPI=%d, UI scale=%.2f (forced to 1.0 for testing)\n", dpi, g_ui_scale);
     }
 
     /* Initialize OpenGL window and texture */
@@ -438,13 +437,17 @@ static void ui_init(void)
 
     /* Content container sits below the title bar and contains the app UI */
     lv_obj_t * content = lv_obj_create(screen);
-    lv_obj_set_size(content, g_width, g_height - title_h);
-    lv_obj_set_pos(content, 0, title_h);
+    lv_obj_set_size(content, g_width+3, g_height - title_h+4);
+    lv_obj_set_pos(content, 0-2, title_h-4);
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
 
     /* Rounded corners for content area for a modern look */
     lv_obj_set_style_radius(content, 0, 0);
     lv_obj_set_style_clip_corner(content, true, 0); /* clip children to rounded corners */
+    
+    /* Disable shadow for content container */
+    lv_obj_set_style_shadow_width(content, 0, 0);
+    lv_obj_set_style_shadow_opa(content, LV_OPA_TRANSP, 0);
 
     /* Disable scrolling on the main content so users cannot swipe left/right */
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
@@ -544,6 +547,14 @@ static void ui_init(void)
     lv_obj_align(status, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
     lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
     lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
+
+    /* Initialize settings system */
+    settings_init();
+    
+    /* Create settings button in top-right corner */
+    lv_obj_t * settings_btn = settings_create_button(content);
+    
+    printf("Settings button added to UI\n");
 
     /* Force screen refresh */
     lv_obj_invalidate(screen);
