@@ -2,6 +2,7 @@
 
 #include "lvgl/lvgl.h"
 #include "ui/setting.h"
+#include "ui/titlebar.h"
 #include <windows.h>
 #include <stdio.h>
 #include <conio.h>
@@ -99,7 +100,6 @@ static void textarea_event_cb(lv_event_t * e);
 static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
 static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code);
 
-static void min_btn_event_cb(lv_event_t * e);
 static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_queue_push(uint32_t key, lv_indev_state_t state);
@@ -112,13 +112,13 @@ static char* paste_text_from_clipboard(void);
 static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration);
 static void reset_long_press_state(void);
 #if USE_OPENGL
-/* Titlebar callbacks/prototypes */
-static void titlebar_event_cb(lv_event_t * e);
-static void close_btn_event_cb(lv_event_t * e);
-#endif
-#if USE_OPENGL
 static bool init_opengl_window(void);
 static void cleanup_opengl(void);
+/* Expose g_hwnd to other modules */
+HWND get_main_window_handle(void)
+{
+    return g_hwnd;
+}
 #endif
 
 static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
@@ -381,59 +381,8 @@ static void ui_init(void)
     lv_obj_set_scroll_dir(screen, LV_DIR_NONE);
     lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
     /* Titlebar: create a thin bar at the top implemented with LVGL */
-    const int title_h = 36; /* logical pixels in LVGL coords */
-    lv_obj_t * title_bar = lv_obj_create(screen);
-    lv_obj_set_size(title_bar, g_width+6 ,title_h+2);
-    lv_obj_set_pos(title_bar, 0, 0);
-    lv_obj_align(title_bar, LV_ALIGN_TOP_MID, 0, -2);
-    lv_obj_set_style_bg_color(title_bar, lv_color_hex(0x2E2E2E), 0);
-    lv_obj_set_style_bg_opa(title_bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(title_bar, 12, 0);
-    /* Disable internal scrolling for the title bar so its children cannot be
-     * vertically scrolled by touch/drag gestures. We still receive events for
-     * press/pressing/release to implement window dragging.
-     */
-    lv_obj_clear_flag(title_bar, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_scroll_dir(title_bar, LV_DIR_NONE);
-    lv_obj_set_scrollbar_mode(title_bar, LV_SCROLLBAR_MODE_OFF);
-    lv_obj_add_event_cb(title_bar, titlebar_event_cb, LV_EVENT_ALL, NULL);
-
-    /* Slight rounding for the title bar corners to match UI aesthetic */
-    lv_obj_set_style_radius(title_bar, 6, 0);
-
-    /* Title text */
-    lv_obj_t * title_label = lv_label_create(title_bar);
-    lv_label_set_text(title_label, "LVGL OpenGL Demo");
-    lv_obj_align(title_label, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFFFF), 0);
-
-    /* Close button on the right of titlebar */
-    lv_obj_t * close_btn = lv_btn_create(title_bar);
-    lv_obj_set_size(close_btn, 48, 36);
-    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 22, 0);
-    lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * cb_label = lv_label_create(close_btn);
-    lv_label_set_text(cb_label, LV_SYMBOL_CLOSE); // 使用内置关闭符号
-    
-    //lv_obj_set_style_text_color(cb_label, lv_color_hex(0xFFFFFF), 0);
-    /* 使用合适大小的字体（按需调整为项目中可用的 montserrat 大小，例如 18/22/28） */
-    lv_obj_align(cb_label, LV_ALIGN_CENTER, -5, 0);
-    /* Round the close button for consistency */
-    lv_obj_set_style_radius(close_btn, 0, 0);
-    /* Remove shadow */
-    lv_obj_set_style_shadow_width(close_btn, 0, 0);
-
-    /* 修改最小化按钮 - 使用内置符号 */
-    lv_obj_t * min_btn = lv_btn_create(title_bar);
-    lv_obj_set_size(min_btn, 38, 36);
-    lv_obj_set_style_bg_color(min_btn, lv_color_hex(0xAF7F00), 0);
-    lv_obj_align(min_btn, LV_ALIGN_RIGHT_MID, -26, 0);
-    lv_obj_add_event_cb(min_btn, min_btn_event_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t * min_label = lv_label_create(min_btn);
-    lv_label_set_text(min_label, LV_SYMBOL_MINUS); // 使用内置减号符号
-    lv_obj_align(min_label, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(min_btn, 0, 0);
-    lv_obj_set_style_shadow_width(min_btn, 0, 0);
+    const int title_h = TITLEBAR_HEIGHT; /* Use constant from titlebar.h */
+    lv_obj_t * title_bar = titlebar_create(screen, g_width);
 
     /* Content container sits below the title bar and contains the app UI */
     lv_obj_t * content = lv_obj_create(screen);
@@ -991,69 +940,6 @@ static void simulate_mouse_click(int x, int y)
     printf("Mouse click simulated at (%d, %d)\n", x, y);
 }
 
-/* Titlebar callbacks -----------------------------------------------------*/
-/* 添加一个普通的 C 函数用于动画完成后的回调 */
-static void anim_ready_cb(lv_anim_t * a)
-{
-    (void)a; /* 忽略参数 */
-    PostQuitMessage(0); /* 关闭应用程序 */
-}
-
-/* 修改 close_btn_event_cb */
-static void close_btn_event_cb(lv_event_t * e)
-{
-    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
-
-    /* Change button color to red */
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
-
-    /* Create an animation to fade out the button */
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, btn);
-    lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
-    lv_anim_set_time(&anim, 50); /* 500ms animation */
-    lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
-
-    /* 使用普通函数作为动画完成后的回调 */
-    lv_anim_set_ready_cb(&anim, anim_ready_cb);
-
-    lv_anim_start(&anim);
-}
-
-static void titlebar_event_cb(lv_event_t * e)
-{
-    /* Window dragging is now handled natively via WM_NCHITTEST in WndProc.
-     * This function can be used for other title bar interactions if needed.
-     */
-    lv_event_code_t code = lv_event_get_code(e);
-    
-    if (code == LV_EVENT_PRESSED) {
-        /* Title bar was clicked - native dragging will handle movement */
-        printf("Title bar clicked\n");
-    }
-}
-
-static void min_btn_event_cb(lv_event_t * e)
-{
-    lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
-
-    printf("Minimize button clicked\n");
-    
-#if USE_OPENGL
-    if (g_hwnd) {
-        /* 改变按钮颜色提供视觉反馈 */
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x8B5A00), 0);
-        
-        /* 直接最小化窗口 */
-        ShowWindow(g_hwnd, SW_MINIMIZE);
-        printf("Window minimized\n");
-        
-        /* 恢复按钮颜色 */
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
-    }
-#endif
-}
 #if USE_OPENGL
 /* Simple Win32 window + OpenGL initialization */
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

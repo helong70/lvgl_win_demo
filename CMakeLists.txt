@@ -30,6 +30,7 @@ endif()
 # Add UI source files
 set(UI_SOURCES
     ui/setting.c
+    ui/titlebar.c
 )
 
 # Force C++ compilation for main.c (since it contains C++ code)
