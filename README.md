@@ -2,6 +2,14 @@
 
 一个在 Windows 平台上运行的 LVGL 图形界面演示项目，使用 OpenGL 硬件加速渲染，具有现代化的无边框窗口设计和完整的输入支持。
 
+## 📸 预览截图
+
+![LVGL Windows Demo Screenshot](screenshots/demo-screenshot.png)
+
+<div align="center">
+  <p><em>现代化的无边框窗口设计 | 交互式控件展示 | 登录表单示例</em></p>
+</div>
+
 ## ✨ 功能特性
 
 ### 核心功能
