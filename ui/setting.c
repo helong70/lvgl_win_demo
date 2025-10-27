@@ -53,7 +53,7 @@ lv_obj_t * settings_create_button(lv_obj_t * parent)
     /* Create settings button with gear icon */
     lv_obj_t * btn = lv_button_create(parent);
     lv_obj_set_size(btn, 50, 50);
-    lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, -20, 20);
+    lv_obj_align(btn, LV_ALIGN_TOP_RIGHT, -20, 0);
     
     /* Style the button */
     lv_obj_set_style_radius(btn, 25, 0);  /* Make it circular */

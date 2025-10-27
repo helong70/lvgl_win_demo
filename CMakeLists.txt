@@ -34,6 +34,13 @@ set(UI_SOURCES
     ui/titlebar.c
 )
 
+# Add HAL source files
+set(HAL_SOURCES
+    hal/lv_hal.c
+    hal/lv_hal_disp.c
+    hal/lv_hal_indev.c
+)
+
 set(PLATFORM_SOURCES
     platform/windows/win32_platform.c
 )
@@ -41,6 +48,7 @@ set(PLATFORM_SOURCES
 # Force C++ compilation for main.c (since it contains C++ code)
 set_source_files_properties(${MAIN_SOURCE} PROPERTIES LANGUAGE CXX)
 set_source_files_properties(${UI_SOURCES} PROPERTIES LANGUAGE CXX)
+set_source_files_properties(${HAL_SOURCES} PROPERTIES LANGUAGE CXX)
 set_source_files_properties(${PLATFORM_SOURCES} PROPERTIES LANGUAGE CXX)
 
 # Include directories
@@ -48,9 +56,9 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Create executable
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES} ${PLATFORM_SOURCES})
+    add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES} ${HAL_SOURCES} ${PLATFORM_SOURCES})
 else()
-    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES} ${PLATFORM_SOURCES})
+    add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES} ${HAL_SOURCES} ${PLATFORM_SOURCES})
 endif()
 
 # Link libraries

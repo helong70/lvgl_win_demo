@@ -42,68 +42,145 @@ lv_group_t * maincontainer_get_keyboard_group(void)
 
 static void create_demo_content(lv_obj_t * content)
 {
-    /* Primary button */
-    lv_obj_t * btn = lv_btn_create(content);
-    lv_obj_set_size(btn, 120, 50);
-    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 20, 20);
+    /* === Top Section: Title and Info === */
+    lv_obj_t * title = lv_label_create(content);
+    lv_label_set_text(title, "LVGL Windows Demo");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x1976D2), 0);
+
+    /* === Left Card: Interactive Controls === */
+    lv_obj_t * left_card = lv_obj_create(content);
+    lv_obj_set_size(left_card, 345, 220);
+    lv_obj_align(left_card, LV_ALIGN_TOP_LEFT, 30, 60);
+    lv_obj_set_style_bg_color(left_card, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_radius(left_card, 12, 0);
+    lv_obj_set_style_shadow_width(left_card, 10, 0);
+    lv_obj_set_style_shadow_opa(left_card, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(left_card, 0, 0);
+    lv_obj_set_style_pad_all(left_card, 20, 0);
+    lv_obj_clear_flag(left_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(left_card, LV_SCROLLBAR_MODE_OFF);
+    
+    /* Card title */
+    lv_obj_t * card_title1 = lv_label_create(left_card);
+    lv_label_set_text(card_title1, "Interactive Controls");
+    lv_obj_align(card_title1, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(card_title1, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(card_title1, lv_color_hex(0x333333), 0);
+
+    /* Button */
+    lv_obj_t * btn = lv_btn_create(left_card);
+    lv_obj_set_size(btn, 140, 50);
+    lv_obj_align(btn, LV_ALIGN_TOP_LEFT, 0, 35);
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-    lv_obj_set_style_radius(btn, 12, 0);
+    lv_obj_set_style_radius(btn, 10, 0);
+    lv_obj_set_style_shadow_width(btn, 8, 0);
+    lv_obj_set_style_shadow_opa(btn, LV_OPA_30, 0);
 
-    lv_obj_t * label = lv_label_create(btn);
-    lv_label_set_text(label, "Click Me!");
-    lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_center(label);
+    lv_obj_t * btn_label = lv_label_create(btn);
+    lv_label_set_text(btn_label, "Click Me!");
+    lv_obj_set_style_text_color(btn_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(btn_label);
 
-    /* Slider */
-    lv_obj_t * slider = lv_slider_create(content);
-    lv_obj_set_size(slider, 200, 25);
-    lv_obj_align(slider, LV_ALIGN_TOP_RIGHT, -20, 20);
+    /* Slider with label */
+    lv_obj_t * slider_label = lv_label_create(left_card);
+    lv_label_set_text(slider_label, "Volume: 50%");
+    lv_obj_align(slider_label, LV_ALIGN_TOP_RIGHT, 0, 40);
+    lv_obj_set_style_text_color(slider_label, lv_color_hex(0x666666), 0);
+    
+    lv_obj_t * slider = lv_slider_create(left_card);
+    lv_obj_set_size(slider, 160, 15);
+    lv_obj_align(slider, LV_ALIGN_TOP_RIGHT, 0, 65);
     lv_slider_set_value(slider, 50, LV_ANIM_OFF);
-    lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(slider, slider_event_cb, LV_EVENT_VALUE_CHANGED, slider_label);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0xE0E0E0), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0x2196F3), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, lv_color_hex(0x1976D2), LV_PART_KNOB);
 
     /* Dropdown */
-    lv_obj_t * dropdown = lv_dropdown_create(content);
-    lv_dropdown_set_options(dropdown, "Option 1\nOption 2\nOption 3\nOption 4\nOption 5");
-    lv_obj_set_size(dropdown, 180, 40);
-    lv_obj_align(dropdown, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_t * dropdown_label = lv_label_create(left_card);
+    lv_label_set_text(dropdown_label, "Select Theme:");
+    lv_obj_align(dropdown_label, LV_ALIGN_TOP_LEFT, 0, 100);
+    lv_obj_set_style_text_color(dropdown_label, lv_color_hex(0x666666), 0);
+    
+    lv_obj_t * dropdown = lv_dropdown_create(left_card);
+    lv_dropdown_set_options(dropdown, "Light\nDark\nBlue\nGreen\nPurple");
+    lv_obj_set_size(dropdown, 310, 40);
+    lv_obj_align(dropdown, LV_ALIGN_TOP_LEFT, 0, 125);
     lv_obj_add_event_cb(dropdown, dropdown_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_set_style_radius(dropdown, 8, 0);
-    lv_obj_set_style_bg_color(dropdown, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(dropdown, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_bg_color(dropdown, lv_color_hex(0xF5F5F5), 0);
+    lv_obj_set_style_border_color(dropdown, lv_color_hex(0xDDDDDD), 0);
     lv_obj_set_style_border_width(dropdown, 1, 0);
 
-    /* Text areas */
-    lv_obj_t * textarea = lv_textarea_create(content);
-    lv_obj_set_size(textarea, 280, 45);
-    lv_obj_align(textarea, LV_ALIGN_BOTTOM_LEFT, 20, -80);
-    lv_textarea_set_placeholder_text(textarea, "Username...");
+    /* === Right Card: Login Form === */
+    lv_obj_t * right_card = lv_obj_create(content);
+    lv_obj_set_size(right_card, 345, 220);
+    lv_obj_align(right_card, LV_ALIGN_TOP_RIGHT, -30, 60);
+    lv_obj_set_style_bg_color(right_card, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_radius(right_card, 12, 0);
+    lv_obj_set_style_shadow_width(right_card, 10, 0);
+    lv_obj_set_style_shadow_opa(right_card, LV_OPA_20, 0);
+    lv_obj_set_style_border_width(right_card, 0, 0);
+    lv_obj_set_style_pad_all(right_card, 20, 0);
+    lv_obj_clear_flag(right_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(right_card, LV_SCROLLBAR_MODE_OFF);
+    
+    /* Card title */
+    lv_obj_t * card_title2 = lv_label_create(right_card);
+    lv_label_set_text(card_title2, "Login Form");
+    lv_obj_align(card_title2, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(card_title2, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(card_title2, lv_color_hex(0x333333), 0);
+
+    /* Username textarea */
+    lv_obj_t * username_label = lv_label_create(right_card);
+    lv_label_set_text(username_label, "Username");
+    lv_obj_align(username_label, LV_ALIGN_TOP_LEFT, 0, 35);
+    lv_obj_set_style_text_color(username_label, lv_color_hex(0x666666), 0);
+    
+    lv_obj_t * textarea = lv_textarea_create(right_card);
+    lv_obj_set_size(textarea, 310, 45);
+    lv_obj_align(textarea, LV_ALIGN_TOP_LEFT, 0, 55);
+    lv_textarea_set_placeholder_text(textarea, "Enter username...");
     lv_textarea_set_text(textarea, "");
+    lv_textarea_set_one_line(textarea, true);
     lv_obj_set_user_data(textarea, (void*)1);
     lv_obj_add_event_cb(textarea, textarea_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_set_style_radius(textarea, 8, 0);
-    lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_bg_color(textarea, lv_color_hex(0xF8F9FA), 0);
+    lv_obj_set_style_border_color(textarea, lv_color_hex(0xDEE2E6), 0);
     lv_obj_set_style_border_width(textarea, 2, 0);
-    lv_obj_set_style_pad_all(textarea, 8, 0);
+    lv_obj_set_style_pad_all(textarea, 10, 0);
     lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(textarea, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFFFFF), LV_STATE_FOCUSED);
 
-    lv_obj_t * textarea2 = lv_textarea_create(content);
-    lv_obj_set_size(textarea2, 280, 45);
-    lv_obj_align_to(textarea2, textarea, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
-    lv_textarea_set_placeholder_text(textarea2, "Password...");
+    /* Password textarea */
+    lv_obj_t * password_label = lv_label_create(right_card);
+    lv_label_set_text(password_label, "Password");
+    lv_obj_align(password_label, LV_ALIGN_TOP_LEFT, 0, 115);
+    lv_obj_set_style_text_color(password_label, lv_color_hex(0x666666), 0);
+    
+    lv_obj_t * textarea2 = lv_textarea_create(right_card);
+    lv_obj_set_size(textarea2, 310, 45);
+    lv_obj_align(textarea2, LV_ALIGN_TOP_LEFT, 0, 135);
+    lv_textarea_set_placeholder_text(textarea2, "Enter password...");
     lv_textarea_set_text(textarea2, "");
+    lv_textarea_set_one_line(textarea2, true);
     lv_textarea_set_password_mode(textarea2, true);
     lv_obj_set_user_data(textarea2, (void*)2);
     lv_obj_add_event_cb(textarea2, textarea_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_set_style_radius(textarea2, 8, 0);
-    lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E1), 0);
-    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF8E7), 0);
+    lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFFE0B2), 0);
     lv_obj_set_style_border_width(textarea2, 2, 0);
-    lv_obj_set_style_pad_all(textarea2, 8, 0);
+    lv_obj_set_style_pad_all(textarea2, 10, 0);
     lv_obj_set_style_border_color(textarea2, lv_color_hex(0xFF9800), LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(textarea2, 2, LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_color(textarea2, lv_color_hex(0xFFF3E0), LV_STATE_FOCUSED);
 
     /* Keyboard navigation group */
     s_keyboard_group = lv_group_create();
@@ -111,18 +188,51 @@ static void create_demo_content(lv_obj_t * content)
     lv_group_add_obj(s_keyboard_group, textarea2);
     lv_obj_add_state(textarea, LV_STATE_FOCUSED);
 
-    /* Status label */
-    lv_obj_t * status = lv_label_create(content);
-    lv_label_set_text(status, "UI Layout: Modern arrangement\nKeyboard navigation enabled");
-    lv_obj_align(status, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
-    lv_obj_set_style_text_color(status, lv_color_hex(0x666666), 0);
-    lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
+    /* === Bottom Section: Info Panel === */
+    lv_obj_t * info_panel = lv_obj_create(content);
+    lv_obj_set_size(info_panel, 700, 220);
+    lv_obj_align(info_panel, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_set_style_bg_color(info_panel, lv_color_hex(0xF5F7FA), 0);
+    lv_obj_set_style_radius(info_panel, 12, 0);
+    lv_obj_set_style_border_width(info_panel, 1, 0);
+    lv_obj_set_style_border_color(info_panel, lv_color_hex(0xE1E8ED), 0);
+    lv_obj_set_style_pad_all(info_panel, 20, 0);
+    lv_obj_set_style_shadow_width(info_panel, 10, 0);
+    lv_obj_set_style_shadow_opa(info_panel, LV_OPA_20, 0);
+    lv_obj_clear_flag(info_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(info_panel, LV_SCROLLBAR_MODE_OFF);
+
+    /* Info title */
+    lv_obj_t * info_title = lv_label_create(info_panel);
+    lv_label_set_text(info_title, LV_SYMBOL_HOME " System Information");
+    lv_obj_align(info_title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_text_font(info_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(info_title, lv_color_hex(0x333333), 0);
+
+    /* Status info */
+    lv_obj_t * status = lv_label_create(info_panel);
+    lv_label_set_text(status, 
+        LV_SYMBOL_OK " All systems operational\n"
+        LV_SYMBOL_KEYBOARD " Keyboard navigation enabled (Tab to switch)\n"
+        LV_SYMBOL_EDIT " Text input fully functional\n"
+        LV_SYMBOL_SETTINGS " Settings available (gear icon in titlebar)\n"
+        LV_SYMBOL_REFRESH " Window restore optimized (no flicker)");
+    lv_obj_align(status, LV_ALIGN_TOP_LEFT, 10, 35);
+    lv_obj_set_style_text_color(status, lv_color_hex(0x4A5568), 0);
+    lv_obj_set_style_text_line_space(status, 8, 0);
+
+    /* Footer text */
+    lv_obj_t * footer = lv_label_create(info_panel);
+    lv_label_set_text(footer, "LVGL v9.x | Windows OpenGL | Modern UI Design");
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_text_color(footer, lv_color_hex(0x999999), 0);
+    lv_obj_set_style_text_font(footer, &lv_font_montserrat_12, 0);
 
     /* Settings button */
     settings_init();
     settings_create_button(content);
 
-    printf("Main container demo content created\n");
+    printf("Main container demo content created with new modern layout\n");
 }
 
 static void btn_event_cb(lv_event_t * e)
@@ -149,7 +259,16 @@ static void btn_event_cb(lv_event_t * e)
 static void slider_event_cb(lv_event_t * e)
 {
     lv_obj_t * slider = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t * label = (lv_obj_t *)lv_event_get_user_data(e);
     int32_t v = lv_slider_get_value(slider);
+    
+    /* Update label text if provided */
+    if (label) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "Volume: %d%%", (int)v);
+        lv_label_set_text(label, buf);
+    }
+    
     lv_obj_invalidate(slider);
     lv_obj_invalidate(lv_obj_get_parent(slider));
     printf("Slider changed: %d\n", (int)v);
