@@ -10,7 +10,7 @@ extern "C" {
 
 /* Titlebar configuration */
 #define TITLEBAR_HEIGHT 36          /* Height in logical pixels */
-#define TITLEBAR_DRAG_EXCLUDE_RIGHT 80  /* Pixels to exclude from right edge (for buttons) */
+#define TITLEBAR_DRAG_EXCLUDE_RIGHT 79  /* Pixels to exclude from right edge (for buttons) */
 
 /* Function declarations */
 lv_obj_t * titlebar_create(lv_obj_t * parent, int width);

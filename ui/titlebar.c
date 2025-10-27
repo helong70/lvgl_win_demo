@@ -9,6 +9,8 @@
 
 /* Static variables for titlebar */
 static lv_obj_t * title_label = NULL;
+static bool close_btn_pressed = false;
+static bool min_btn_pressed = false;
 
 /* Animation callback for close button */
 static void anim_ready_cb(lv_anim_t * a)
@@ -46,7 +48,7 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     lv_obj_t * close_btn = lv_btn_create(title_bar);
     lv_obj_set_size(close_btn, 48, 36);
     lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 22+5, 0);
-    lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_t * cb_label = lv_label_create(close_btn);
     lv_label_set_text(cb_label, LV_SYMBOL_CLOSE);
     lv_obj_align(cb_label, LV_ALIGN_CENTER, -5, 0);
@@ -59,7 +61,7 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     lv_obj_set_size(min_btn, 38, 36);
     lv_obj_set_style_bg_color(min_btn, lv_color_hex(0xAF7F00), 0);
     lv_obj_align(min_btn, LV_ALIGN_RIGHT_MID, -26+5, 0);
-    lv_obj_add_event_cb(min_btn, min_btn_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(min_btn, min_btn_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_t * min_label = lv_label_create(min_btn);
     lv_label_set_text(min_label, LV_SYMBOL_MINUS);
     lv_obj_center(min_label);
@@ -93,44 +95,106 @@ void titlebar_event_cb(lv_event_t * e)
 
 void close_btn_event_cb(lv_event_t * e)
 {
+    lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
+    
+    if (code == LV_EVENT_PRESSED) {
+        /* Mark button as pressed */
+        close_btn_pressed = true;
+        /* Change button color to red */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
+        DEBUG_PRINTF("Close button pressed\n");
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        /* Check if mouse is still over the button */
+        lv_indev_t * indev = lv_indev_get_act();
+        if (close_btn_pressed && indev) {
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
+            
+            /* Check if point is within button bounds */
+            lv_area_t btn_area;
+            lv_obj_get_coords(btn, &btn_area);
+            
+            if (point.x >= btn_area.x1 && point.x <= btn_area.x2 &&
+                point.y >= btn_area.y1 && point.y <= btn_area.y2) {
+                /* Mouse released inside button - trigger close */
+                DEBUG_PRINTF("Close button clicked - starting exit animation\n");
+                
+                /* Create an animation to fade out the button */
+                lv_anim_t anim;
+                lv_anim_init(&anim);
+                lv_anim_set_var(&anim, btn);
+                lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
+                lv_anim_set_time(&anim, 50); /* 50ms animation */
+                lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
 
-    /* Change button color to red */
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
+                /* Set animation completion callback */
+                lv_anim_set_ready_cb(&anim, anim_ready_cb);
 
-    /* Create an animation to fade out the button */
-    lv_anim_t anim;
-    lv_anim_init(&anim);
-    lv_anim_set_var(&anim, btn);
-    lv_anim_set_values(&anim, LV_OPA_COVER, LV_OPA_TRANSP);
-    lv_anim_set_time(&anim, 50); /* 50ms animation */
-    lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_set_style_opa);
-
-    /* Set animation completion callback */
-    lv_anim_set_ready_cb(&anim, anim_ready_cb);
-
-    lv_anim_start(&anim);
-    DEBUG_PRINTF("Close button clicked - starting exit animation\n");
+                lv_anim_start(&anim);
+            } else {
+                DEBUG_PRINTF("Close button released outside bounds - cancelled\n");
+            }
+        }
+        close_btn_pressed = false;
+    }
+    else if (code == LV_EVENT_PRESS_LOST) {
+        /* Button press was lost (e.g., scrolling or another object took focus) */
+        close_btn_pressed = false;
+        DEBUG_PRINTF("Close button press lost\n");
+    }
 }
 
 void min_btn_event_cb(lv_event_t * e)
 {
+    lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
-
-    DEBUG_PRINTF("Minimize button clicked\n");
     
-#if USE_OPENGL
-    HWND hwnd = get_main_window_handle();
-    if (hwnd) {
-        /* Change button color for visual feedback */
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x8B5A00), 0);
-        
-        /* Minimize window directly */
-        ShowWindow(hwnd, SW_MINIMIZE);
-        DEBUG_PRINTF("Window minimized\n");
-        
-        /* Restore button color */
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
+    if (code == LV_EVENT_PRESSED) {
+        /* Mark button as pressed */
+        min_btn_pressed = true;
+        DEBUG_PRINTF("Minimize button pressed\n");
     }
+    else if (code == LV_EVENT_RELEASED) {
+        /* Check if mouse is still over the button */
+        lv_indev_t * indev = lv_indev_get_act();
+        if (min_btn_pressed && indev) {
+            lv_point_t point;
+            lv_indev_get_point(indev, &point);
+            
+            /* Check if point is within button bounds */
+            lv_area_t btn_area;
+            lv_obj_get_coords(btn, &btn_area);
+            
+            if (point.x >= btn_area.x1 && point.x <= btn_area.x2 &&
+                point.y >= btn_area.y1 && point.y <= btn_area.y2) {
+                /* Mouse released inside button - trigger minimize */
+                DEBUG_PRINTF("Minimize button clicked\n");
+                
+#if USE_OPENGL
+                HWND hwnd = get_main_window_handle();
+                if (hwnd) {
+                    /* Change button color for visual feedback */
+                    lv_obj_set_style_bg_color(btn, lv_color_hex(0x8B5A00), 0);
+                    
+                    /* Minimize window directly */
+                    ShowWindow(hwnd, SW_MINIMIZE);
+                    DEBUG_PRINTF("Window minimized\n");
+                    
+                    /* Restore button color */
+                    lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
+                }
 #endif
+            } else {
+                DEBUG_PRINTF("Minimize button released outside bounds - cancelled\n");
+            }
+        }
+        min_btn_pressed = false;
+    }
+    else if (code == LV_EVENT_PRESS_LOST) {
+        /* Button press was lost */
+        min_btn_pressed = false;
+        DEBUG_PRINTF("Minimize button press lost\n");
+    }
 }
