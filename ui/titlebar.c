@@ -11,6 +11,7 @@
 static lv_obj_t * title_label = NULL;
 static bool close_btn_pressed = false;
 static bool min_btn_pressed = false;
+static lv_color_t close_btn_default_color;
 
 /* Animation callback for close button */
 static void anim_ready_cb(lv_anim_t * a)
@@ -55,6 +56,8 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     /* Style close button */
     lv_obj_set_style_radius(close_btn, 0, 0);
     lv_obj_set_style_shadow_width(close_btn, 0, 0);
+    /* Save default background color for later restoration */
+    close_btn_default_color = lv_obj_get_style_bg_color(close_btn, LV_PART_MAIN);
 
     /* Minimize button */
     lv_obj_t * min_btn = lv_btn_create(title_bar);
@@ -101,8 +104,8 @@ void close_btn_event_cb(lv_event_t * e)
     if (code == LV_EVENT_PRESSED) {
         /* Mark button as pressed */
         close_btn_pressed = true;
-        /* Change button color to red */
-        lv_obj_set_style_bg_color(btn, lv_color_hex(0x00000af), 0);
+        /* Change button color to dark red */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0x0000af), 0);
         DEBUG_PRINTF("Close button pressed\n");
     }
     else if (code == LV_EVENT_RELEASED) {
@@ -134,15 +137,18 @@ void close_btn_event_cb(lv_event_t * e)
 
                 lv_anim_start(&anim);
             } else {
+                /* Mouse released outside button - restore default color */
+                lv_obj_set_style_bg_color(btn, close_btn_default_color, 0);
                 DEBUG_PRINTF("Close button released outside bounds - cancelled\n");
             }
         }
         close_btn_pressed = false;
     }
     else if (code == LV_EVENT_PRESS_LOST) {
-        /* Button press was lost (e.g., scrolling or another object took focus) */
+        /* Button press was lost (e.g., mouse moved out) - restore default color */
+        lv_obj_set_style_bg_color(btn, close_btn_default_color, 0);
         close_btn_pressed = false;
-        DEBUG_PRINTF("Close button press lost\n");
+        DEBUG_PRINTF("Close button press lost - color restored\n");
     }
 }
 
@@ -187,14 +193,17 @@ void min_btn_event_cb(lv_event_t * e)
                 }
 #endif
             } else {
+                /* Mouse released outside button - restore original color */
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
                 DEBUG_PRINTF("Minimize button released outside bounds - cancelled\n");
             }
         }
         min_btn_pressed = false;
     }
     else if (code == LV_EVENT_PRESS_LOST) {
-        /* Button press was lost */
+        /* Button press was lost - restore original color */
+        lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
         min_btn_pressed = false;
-        DEBUG_PRINTF("Minimize button press lost\n");
+        DEBUG_PRINTF("Minimize button press lost - color restored\n");
     }
 }
