@@ -15,6 +15,24 @@
 extern "C" {
 #endif
 
+/* Callback types for input events */
+typedef void (*win32_mouse_callback_t)(int x, int y, bool pressed);
+typedef void (*win32_keyboard_push_callback_t)(uint32_t key, uint32_t state);
+typedef void (*win32_resize_callback_t)(int width, int height);
+
+/* Window initialization and cleanup */
+bool win32_init_window(int width, int height, float ui_scale);
+void win32_cleanup_window(void);
+
+/* Message loop processing - returns false when WM_QUIT received */
+bool win32_process_messages(void);
+
+/* Register callbacks for input events */
+void win32_set_mouse_callback(win32_mouse_callback_t callback);
+void win32_set_keyboard_callback(win32_keyboard_push_callback_t callback);
+void win32_set_resize_callback(win32_resize_callback_t callback);
+void win32_set_display_for_resize(void * display);
+
 /* Get/Set main window handle */
 void set_main_window_handle(HWND hwnd);
 HWND get_main_window_handle(void);

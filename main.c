@@ -94,15 +94,17 @@ static void keyboard_read(lv_indev_t * indev, lv_indev_data_t * data);
 static void keyboard_queue_push(uint32_t key, lv_indev_state_t state);
 static bool keyboard_queue_pop(keyboard_event_t* event);
 static void simulate_mouse_click(int x, int y);
+
+/* Platform callbacks */
+static void on_mouse_event(int x, int y, bool pressed);
+static void on_keyboard_event(uint32_t key, uint32_t state);
+static void on_resize_event(int width, int height);
+
 /* Clipboard functions */
 /* Long press acceleration functions */
 static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD press_duration);
 static void reset_long_press_state(void);
-#if USE_OPENGL
-static bool init_opengl_window(void);
-static void cleanup_opengl(void);
-/* Expose g_hwnd to other modules */
-#endif
+/* WndProc and window functions now in platform module */
 
 static void display_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px_map)
 {
@@ -208,17 +210,14 @@ int main(void)
     /* Run loop */
 #if USE_OPENGL
     printf("Entering Windows message loop (OpenGL). Close window to exit.\n");
-    MSG msg;
     bool running = true;
     while (running) {
-        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) {
-                running = false;
-                break;
-            }
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+        /* Process Windows messages through platform module */
+        if (!win32_process_messages()) {
+            running = false;
+            break;
         }
+        
         lv_timer_handler();
         
         /* Skip sleep for better responsiveness during delete operations */
@@ -234,7 +233,8 @@ int main(void)
         }
     }
     /* cleanup */
-    cleanup_opengl();
+    win32_cleanup_window();
+    win32_cleanup_gdiplus();
 #else
     /*Handle LVGL tasks with simulated input*/
     while(1) {
@@ -291,10 +291,19 @@ static void hal_init(void)
         printf("System DPI=%d, UI scale=%.2f (forced to 1.0 for testing)\n", dpi, g_ui_scale);
     }
 
-    /* Initialize OpenGL window and texture */
-    if (!init_opengl_window()) {
+    /* Initialize GDI+ */
+    win32_init_gdiplus();
+
+    /* Initialize window and OpenGL through platform module */
+    if (!win32_init_window(g_width, g_height, g_ui_scale)) {
         printf("ERROR: Failed to initialize OpenGL window. Falling back to console output.\n");
     } else {
+        /* Register callbacks */
+        win32_set_mouse_callback(on_mouse_event);
+        win32_set_keyboard_callback(on_keyboard_event);
+        win32_set_resize_callback(on_resize_event);
+        win32_set_display_for_resize(display);
+        
         /* create GL texture */
         wglMakeCurrent(g_hdc, g_hglrc);
         glGenTextures(1, &g_tex);
@@ -389,6 +398,30 @@ static void mouse_read(lv_indev_t * indev, lv_indev_data_t * data)
     data->point.x = mouse_data.point.x;
     data->point.y = mouse_data.point.y;
     data->state = mouse_data.state;
+}
+
+/* Platform callback implementations */
+static void on_mouse_event(int x, int y, bool pressed)
+{
+    mouse_data.point.x = x;
+    mouse_data.point.y = y;
+    mouse_data.state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
+
+static void on_keyboard_event(uint32_t key, uint32_t state)
+{
+    lv_indev_state_t indev_state = (state == 1) ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+    keyboard_queue_push(key, indev_state);
+    printf("Keyboard callback: key=0x%X, state=%d\n", key, state);
+}
+
+static void on_resize_event(int width, int height)
+{
+    if (display) {
+        extern lv_obj_t * lv_screen_active(void);
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(display);
+    }
 }
 
 static void keyboard_queue_push(uint32_t key, lv_indev_state_t state)
@@ -540,502 +573,10 @@ static void simulate_mouse_click(int x, int y)
 }
 
 #if USE_OPENGL
-/* Simple Win32 window + OpenGL initialization */
-static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
-{
-    switch (msg) {
-        case WM_NCHITTEST: {
-            /* Allow dragging the window by clicking anywhere in the title bar area */
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            ScreenToClient(hwnd, &pt);
-            
-            /* Check if cursor is in title bar area (top 36 pixels) */
-            if (pt.y >= 0 && pt.y <= 36) {
-                /* Check if it's not over the close button area (right 70 pixels to accommodate 48px button + 22px offset) */
-                RECT rc;
-                GetClientRect(hwnd, &rc);
-                if (pt.x < rc.right - 180) {
-                    return HTCAPTION; /* This enables native window dragging */
-                }
-            }
-            return DefWindowProc(hwnd, msg, wParam, lParam);
-        }
-        case WM_CLOSE:
-            PostQuitMessage(0);
-            return 0;
-        case WM_SIZE: {
-            int new_w = (int)(short)LOWORD(lParam);
-            int new_h = (int)(short)HIWORD(lParam);
-            g_win_w = new_w > 0 ? new_w : 0;
-            g_win_h = new_h > 0 ? new_h : 0;
-            if (g_hglrc && g_hdc) {
-                wglMakeCurrent(g_hdc, g_hglrc);
-                glViewport(0, 0, g_win_w, g_win_h);
-                /* Force a redraw of LVGL screen to repaint at new size */
-                if (display) {
-                    lv_obj_invalidate(lv_screen_active());
-                    lv_refr_now(display);
-                }
-            }
-            return 0;
-        }
-        case WM_LBUTTONDOWN: {
-            int x = (int)(short)LOWORD(lParam);
-            int y = (int)(short)HIWORD(lParam);
-            mouse_data.point.x = x;
-            mouse_data.point.y = y;
-            mouse_data.state = LV_INDEV_STATE_PRESSED;
-            return 0;
-        }
-        case WM_LBUTTONUP: {
-            int x = (int)(short)LOWORD(lParam);
-            int y = (int)(short)HIWORD(lParam);
-            mouse_data.point.x = x;
-            mouse_data.point.y = y;
-            mouse_data.state = LV_INDEV_STATE_RELEASED;
-            return 0;
-        }
-        case WM_MOUSEMOVE: {
-            int x = (int)(short)LOWORD(lParam);
-            int y = (int)(short)HIWORD(lParam);
-            mouse_data.point.x = x;
-            mouse_data.point.y = y;
-            return 0;
-        }
-        case WM_KEYDOWN:
-        case WM_SYSKEYDOWN: {
-            uint32_t key = (uint32_t)wParam;
-            DWORD current_time = GetTickCount();
-            
-            /* Long press acceleration logic */
-            bool should_process = false;
-            
-            if (long_press_key == key) {
-                /* Same key being held down - check if we should repeat */
-                DWORD press_duration = current_time - long_press_start_time;
-                DWORD since_last_repeat = current_time - long_press_last_repeat;
-                
-                uint32_t required_interval = get_repeat_interval(key, long_press_repeat_count, press_duration);
-                
-                if (since_last_repeat >= required_interval) {
-                    should_process = true;
-                    long_press_last_repeat = current_time;
-                    long_press_repeat_count++;
-                }
-            } else {
-                /* New key or first press of this key */
-                reset_long_press_state();
-                long_press_key = key;
-                long_press_start_time = current_time;
-                long_press_last_repeat = current_time;
-                long_press_repeat_count = 0;
-                should_process = true;
-            }
-            
-            if (!should_process) {
-                return 0; /* Skip this key event */
-            }
-            
-            printf("Key pressed: 0x%X (%d) [repeat=%d, duration=%dms]\n", 
-                   key, key, long_press_repeat_count, current_time - long_press_start_time);
-            
-            /* Check NumLock state for numpad handling */
-            bool numlock_on = (GetKeyState(VK_NUMLOCK) & 0x0001) != 0;
-            
-            /* Check for Ctrl key combinations */
-            bool ctrl_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            
-            /* Convert Windows virtual key codes to LVGL key codes */
-            uint32_t lv_key = 0;
-            
-            /* Handle Ctrl+A for select all */
-            if (ctrl_pressed && key == 'A') {
-                printf("Ctrl+A detected - Select All\n");
-                lv_key = LV_KEY_CTRL_A; /* Use our custom key code for Ctrl+A */
-                /* We'll handle the actual select all in the textarea event handler */
-            }
-            /* Handle Ctrl+C for copy */
-            else if (ctrl_pressed && key == 'C') {
-                printf("Ctrl+C detected - Copy\n");
-                /* Get the currently focused textarea */
-                lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
-                lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
-                if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
-                    const char * text = lv_textarea_get_text(active_ta);
-                    if (text && strlen(text) > 0) {
-                        win32_clipboard_copy(text);
-                    } else {
-                        printf("No text to copy\n");
-                    }
-                } else {
-                    printf("No active textarea for copy\n");
-                }
-                return 0; /* Don't forward to LVGL */
-            }
-            /* Handle Ctrl+V for paste */
-            else if (ctrl_pressed && key == 'V') {
-                printf("Ctrl+V detected - Paste\n");
-                /* Get the currently focused textarea */
-                lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
-                lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
-                if (active_ta && lv_obj_check_type(active_ta, &lv_textarea_class)) {
-                    char * pasted_text = win32_clipboard_paste();
-                    if (pasted_text) {
-                        /* Replace current text with pasted text */
-                        lv_textarea_set_text(active_ta, pasted_text);
-                        free(pasted_text);
-                    }
-                } else {
-                    printf("No active textarea for paste\n");
-                }
-                return 0; /* Don't forward to LVGL */
-            } else {
-            switch (key) {
-                case VK_UP:       lv_key = LV_KEY_UP; break;
-                case VK_DOWN:     lv_key = LV_KEY_DOWN; break;
-                case VK_LEFT:     lv_key = LV_KEY_LEFT; break;
-                case VK_RIGHT:    lv_key = LV_KEY_RIGHT; break;
-                case VK_ESCAPE:   lv_key = LV_KEY_ESC; break;
-                case VK_DELETE:   lv_key = LV_KEY_DEL; break;
-                case VK_BACK:     
-                    lv_key = LV_KEY_BACKSPACE; 
-                    printf("Backspace key detected, mapping to LV_KEY_BACKSPACE (0x%X)\n", LV_KEY_BACKSPACE);
-                    break;
-                case VK_RETURN:   lv_key = LV_KEY_ENTER; break;
-                case VK_TAB:      lv_key = LV_KEY_NEXT; break;
-                case VK_HOME:     lv_key = LV_KEY_HOME; break;
-                case VK_END:      lv_key = LV_KEY_END; break;
-                
-                /* Handle numpad keys when NumLock is OFF (they act as navigation keys) */
-                case VK_NUMPAD0:  lv_key = numlock_on ? '0' : VK_INSERT; break;
-                case VK_NUMPAD1:  lv_key = numlock_on ? '1' : VK_END; break;
-                case VK_NUMPAD2:  lv_key = numlock_on ? '2' : VK_DOWN; break;
-                case VK_NUMPAD3:  lv_key = numlock_on ? '3' : VK_NEXT; break;
-                case VK_NUMPAD4:  lv_key = numlock_on ? '4' : VK_LEFT; break;
-                case VK_NUMPAD5:  lv_key = numlock_on ? '5' : 0; break; /* No function when NumLock off */
-                case VK_NUMPAD6:  lv_key = numlock_on ? '6' : VK_RIGHT; break;
-                case VK_NUMPAD7:  lv_key = numlock_on ? '7' : VK_HOME; break;
-                case VK_NUMPAD8:  lv_key = numlock_on ? '8' : VK_UP; break;
-                case VK_NUMPAD9:  lv_key = numlock_on ? '9' : VK_PRIOR; break;
-                
-                /* Handle numpad operator keys - these work regardless of NumLock */
-                case VK_MULTIPLY: lv_key = '*'; break; /* Numpad * */
-                case VK_ADD:      lv_key = '+'; break; /* Numpad + */
-                case VK_SUBTRACT: lv_key = '-'; break; /* Numpad - */
-                case VK_DIVIDE:   lv_key = '/'; break; /* Numpad / */
-                case VK_DECIMAL:  lv_key = '.'; break; /* Numpad . */
-                
-                /* Handle common punctuation keys directly */
-                case VK_OEM_PERIOD: /* . > */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '>' : '.'; 
-                    break;
-                case VK_OEM_COMMA:  /* , < */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '<' : ','; 
-                    break;
-                case VK_OEM_2:      /* /? key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '?' : '/'; 
-                    break;
-                case VK_OEM_1:      /* ;: key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? ':' : ';'; 
-                    break;
-                case VK_OEM_7:      /* '" key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '"' : '\''; 
-                    break;
-                case VK_OEM_4:      /* [{ key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '{' : '['; 
-                    break;
-                case VK_OEM_6:      /* ]} key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '}' : ']'; 
-                    break;
-                case VK_OEM_5:      /* \| key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '|' : '\\'; 
-                    break;
-                case VK_OEM_3:      /* `~ key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '~' : '`'; 
-                    break;
-                case VK_OEM_MINUS:  /* -_ key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '_' : '-'; 
-                    break;
-                case VK_OEM_PLUS:   /* =+ key */
-                    lv_key = (GetKeyState(VK_SHIFT) & 0x8000) ? '+' : '='; 
-                    break;
-                default:
-                    /* Process printable characters (letters, numbers, symbols) */
-                    /* Support both uppercase VK codes (0x41-0x5A) and lowercase ASCII (0x61-0x7A) */
-                    bool is_letter = (key >= 'A' && key <= 'Z') || (key >= 'a' && key <= 'z');
-                    bool is_number = (key >= 0x30 && key <= 0x39); /* VK_0 to VK_9 */
-                    
-                    if (is_letter || is_number || key == VK_SPACE || 
-                        (key >= VK_OEM_1 && key <= VK_OEM_3) || (key >= VK_OEM_4 && key <= VK_OEM_8) ||
-                        key == VK_OEM_MINUS || key == VK_OEM_PLUS) {
-                        
-                        if (is_letter) {
-                            /* Handle both uppercase VK codes and lowercase ASCII */
-                            if (key >= 'A' && key <= 'Z') {
-                                /* Standard VK_A to VK_Z codes */
-                                bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                                lv_key = shift_pressed ? key : (key + 32); /* Convert to lowercase if no shift */
-                            } else if (key >= 'a' && key <= 'z') {
-                                /* Direct lowercase codes - use as is or convert to uppercase if shift */
-                                bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                                lv_key = shift_pressed ? (key - 32) : key; /* Convert to uppercase if shift */
-                            }
-                        } else if (is_number) {
-                            /* Main number row keys */
-                            bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-                            if (shift_pressed) {
-                                /* Handle shifted number keys: )!@#$%^&*( */
-                                char shifted_nums[] = ")!@#$%^&*(";
-                                lv_key = shifted_nums[key - 0x30];
-                            } else {
-                                lv_key = key; /* Direct number key */
-                            }
-                        } else if (key == VK_SPACE) {
-                            lv_key = ' ';
-                        }
-                        /* For other keys, let WM_CHAR handle them */
-                    }
-                    break;
-            } /* end of switch */
-            } /* end of else (not Ctrl+A) */
-            
-            if (lv_key != 0) {
-                char key_name[32] = "";
-                /* Add key name for common keys */
-                switch (key) {
-                    case VK_MULTIPLY: strcpy(key_name, "NumPad*"); break;
-                    case VK_DIVIDE: strcpy(key_name, "NumPad/"); break;
-                    case VK_ADD: strcpy(key_name, "NumPad+"); break;
-                    case VK_SUBTRACT: strcpy(key_name, "NumPad-"); break;
-                    case VK_DECIMAL: strcpy(key_name, "NumPad."); break;
-                    case VK_OEM_1: strcpy(key_name, ";:"); break;
-                    case VK_OEM_2: strcpy(key_name, "/?"); break;
-                    case VK_OEM_3: strcpy(key_name, "`~"); break;
-                    case VK_OEM_4: strcpy(key_name, "[{"); break;
-                    case VK_OEM_5: strcpy(key_name, "\\|"); break;
-                    case VK_OEM_6: strcpy(key_name, "]}"); break;
-                    case VK_OEM_7: strcpy(key_name, "'\""); break;
-                    case VK_OEM_MINUS: strcpy(key_name, "-_"); break;
-                    case VK_OEM_PLUS: strcpy(key_name, "=+"); break;
-                    case VK_OEM_PERIOD: strcpy(key_name, ".>"); break;
-                    case VK_OEM_COMMA: strcpy(key_name, ",<"); break;
-                    case VK_NUMPAD0: case VK_NUMPAD1: case VK_NUMPAD2: case VK_NUMPAD3: case VK_NUMPAD4:
-                    case VK_NUMPAD5: case VK_NUMPAD6: case VK_NUMPAD7: case VK_NUMPAD8: case VK_NUMPAD9:
-                        sprintf(key_name, "NumPad%d", key - VK_NUMPAD0); break;
-                    default: 
-                        if (key >= 'A' && key <= 'Z') sprintf(key_name, "Key_%c", (char)key);
-                        else if (key >= '0' && key <= '9') sprintf(key_name, "Key_%c", (char)key);
-                        break;
-                }
-                
-                printf("WM_KEYDOWN processing: VK=0x%X (%s), lv_key=0x%X ('%c'), NumLock=%s\n", 
-                       key, key_name[0] ? key_name : "Unknown", lv_key, 
-                       (lv_key >= 32 && lv_key <= 126) ? (char)lv_key : '?', 
-                       numlock_on ? "ON" : "OFF");
-                keyboard_queue_push(lv_key, LV_INDEV_STATE_PRESSED);
-            } else {
-                printf("WM_KEYDOWN ignored: VK=0x%X, NumLock=%s\n", key, numlock_on ? "ON" : "OFF");
-            }
-            return 0;
-        }
-        case WM_KEYUP:
-        case WM_SYSKEYUP: {
-            uint32_t key = (uint32_t)wParam;
-            
-            /* Reset long press state when key is released */
-            if (long_press_key == key) {
-                reset_long_press_state();
-            }
-            
-            /* For most keys, we don't need to track key-up events for LVGL text input */
-            return 0;
-        }
-        case WM_CHAR: {
-            /* Handle character input that wasn't handled in WM_KEYDOWN */
-            uint32_t character = (uint32_t)wParam;
-            DWORD current_time = GetTickCount();
-            
-            /* Only process characters not already handled in WM_KEYDOWN */
-            /* Skip letters, numbers, space, and common punctuation handled in WM_KEYDOWN */
-            bool already_handled = ((character >= 'a' && character <= 'z') || 
-                                   (character >= 'A' && character <= 'Z') || 
-                                   (character >= '0' && character <= '9') || 
-                                   character == ' ' || character == '.' || character == ',' ||
-                                   character == '/' || character == '?' || character == ';' ||
-                                   character == ':' || character == '\'' || character == '"' ||
-                                   character == '<' || character == '>');
-            
-            /* Process printable characters including extended ASCII */
-            if (!already_handled && ((character >= 32 && character <= 126) || (character >= 160 && character <= 255))) {
-                /* Anti-bounce for character input */
-                if (current_time - last_key_time >= 2) { /* 2ms debounce for chars - very responsive */
-                    printf("WM_CHAR processing character: '%c' (0x%X)\n", 
-                           (character >= 32 && character <= 126) ? (char)character : '?', character);
-                    keyboard_queue_push(character, LV_INDEV_STATE_PRESSED);
-                    last_key_time = current_time;
-                }
-            } else {
-                printf("WM_CHAR ignored%s: '%c' (0x%X)\n", 
-                       already_handled ? " (already handled)" : " (non-printable)", 
-                       (character >= 32 && character <= 126) ? (char)character : '?', character);
-            }
-            return 0;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hwnd, &ps);
-
-            Graphics graphics(hdc);
-            graphics.SetSmoothingMode(SmoothingModeHighQuality);
-
-            // 设置画刷和圆角矩形参数
-            SolidBrush brush(Color(255, 0, 122, 204)); // 半透明蓝色
-            Rect rect(10, 10, g_win_w - 20, g_win_h - 20);
-            int cornerRadius = 60;
-
-            // 绘制圆角矩形
-            GraphicsPath path;
-            path.AddArc(rect.X, rect.Y, cornerRadius, cornerRadius, 180, 90);
-            path.AddArc(rect.X + rect.Width - cornerRadius, rect.Y, cornerRadius, cornerRadius, 270, 90);
-            path.AddArc(rect.X + rect.Width - cornerRadius, rect.Y + rect.Height - cornerRadius, cornerRadius, cornerRadius, 0, 90);
-            path.AddArc(rect.X, rect.Y + rect.Height - cornerRadius, cornerRadius, cornerRadius, 90, 90);
-            path.CloseFigure();
-
-            graphics.FillPath(&brush, &path);
-
-            EndPaint(hwnd, &ps);
-            return 0;
-        }
-    }
-    return DefWindowProc(hwnd, msg, wParam, lParam);
-}
-
-static bool init_opengl_window(void)
-{
-    HINSTANCE hInstance = GetModuleHandle(NULL);
-    WNDCLASS wc = {0};
-    wc.style = CS_OWNDC;
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.lpszClassName = "lvgl_opengl_window";
-
-    if (!RegisterClass(&wc)) {
-        printf("RegisterClass failed\n");
-        return false;
-    }
-
-    /* Create window */
-    int win_w = (int)(g_width * g_ui_scale);
-    int win_h = (int)(g_height * g_ui_scale);
-    int sx = GetSystemMetrics(SM_CXSCREEN);
-    int sy = GetSystemMetrics(SM_CYSCREEN);
-    int x = (sx - win_w) / 2;
-    int y = (sy - win_h) / 2;
-
-    DWORD style = WS_POPUP | WS_VISIBLE;
-    DWORD exStyle = WS_EX_LAYERED;
-
-    g_hwnd = CreateWindowExA(exStyle, wc.lpszClassName, NULL, style,
-                         x, y, win_w, win_h,
-                         NULL, NULL, hInstance, NULL);
-
-    if (!g_hwnd) {
-        printf("CreateWindow failed\n");
-        return false;
-    }
-
-    set_main_window_handle(g_hwnd);
-
-    /* 设置圆角和透明背景 */
-    HRGN rgn = CreateRoundRectRgn(0, 0, win_w + 0, win_h + 0, 50, 50); // 圆角半径为 30
-    SetWindowRgn(g_hwnd, rgn, TRUE);
-    DeleteObject(rgn); // 删除区域对象以释放资源
-
-    /* 设置透明背景 */
-    SetLayeredWindowAttributes(g_hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY | LWA_ALPHA);
-
-    g_hdc = GetDC(g_hwnd);
-
-    PIXELFORMATDESCRIPTOR pfd = {0};
-    pfd.nSize = sizeof(pfd);
-    pfd.nVersion = 1;
-    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-    pfd.iPixelType = PFD_TYPE_RGBA;
-    pfd.cColorBits = 32;
-    pfd.cAlphaBits = 8;
-
-    // 更新像素格式描述符以支持多重采样
-    pfd.dwFlags |= PFD_SUPPORT_COMPOSITION;
-
-    int pf = ChoosePixelFormat(g_hdc, &pfd);
-    if (!pf) {
-        printf("ChoosePixelFormat failed\n");
-        return false;
-    }
-    if (!SetPixelFormat(g_hdc, pf, &pfd)) {
-        printf("SetPixelFormat failed\n");
-        return false;
-    }
-
-    g_hglrc = wglCreateContext(g_hdc);
-    if (!g_hglrc) {
-        printf("wglCreateContext failed\n");
-        return false;
-    }
-
-    if (!wglMakeCurrent(g_hdc, g_hglrc)) {
-        printf("wglMakeCurrent failed\n");
-        return false;
-    }
-
-    // 启用多重采样以减少锯齿
-    glEnable(GL_MULTISAMPLE);
-
-    // 改进纹理过滤模式
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    // 启用全局抗锯齿
-    glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST);
-
-    // 检查多重采样状态
-    GLint samples = 0;
-    glGetIntegerv(GL_SAMPLES, &samples);
-    printf("Number of samples: %d\n", samples);
-
-    ShowWindow(g_hwnd, SW_SHOW);
-    UpdateWindow(g_hwnd);
-
-    RECT rc;
-    if (GetClientRect(g_hwnd, &rc)) {
-        g_win_w = rc.right - rc.left;
-        g_win_h = rc.bottom - rc.top;
-    } else {
-        g_win_w = g_width;
-        g_win_h = g_height;
-    }
-    return true;
-}
-
-static void cleanup_opengl(void)
-{
-    if (g_hglrc) {
-        wglMakeCurrent(NULL, NULL);
-        wglDeleteContext(g_hglrc);
-        g_hglrc = NULL;
-    }
-    if (g_hdc && g_hwnd) {
-        ReleaseDC(g_hwnd, g_hdc);
-        g_hdc = NULL;
-    }
-    if (g_hwnd) {
-        DestroyWindow(g_hwnd);
-        g_hwnd = NULL;
-    }
-    set_main_window_handle(NULL);
-}
+/* WndProc, init_opengl_window, and cleanup_opengl moved to platform module */
 #endif
+
+/* GDI+ managed by platform module now */
 
 /* GDI+ managed by platform module now */
 
