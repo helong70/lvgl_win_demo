@@ -20,8 +20,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
     
-    /* Create temp exe path */
-    wsprintfA(exePath, "%sLVGL_Windows_Demo.exe", tempPath);
+    /* Create unique temp exe path using process ID and tick count */
+    DWORD pid = GetCurrentProcessId();
+    DWORD tick = GetTickCount();
+    wsprintfA(exePath, "%sLVGL_Windows_Demo_%u_%u.exe", tempPath, pid, tick);
     
     /* Load embedded exe from resources */
     HRSRC hRes = FindResourceA(hInstance, MAKEINTRESOURCEA(IDR_MAIN_EXE), RT_RCDATA);
