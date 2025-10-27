@@ -90,11 +90,52 @@ LVGL_WIN/
 ### 方法一：使用构建脚本（推荐）
 
 ```batch
-# 构建项目
+# 默认编译（无控制台窗口）
 build_ninja.bat
 
-# 运行程序
+# 调试模式（显示 printf 输出）
+build_ninja.bat console
+
+# 编译并打包成单文件（推荐发布）
+build_ninja.bat pack
+
+# 调试模式 + 打包
+build_ninja.bat console pack
+```
+
+#### 构建参数说明
+
+| 参数 | 说明 | 输出文件 |
+|------|------|---------|
+| *(无参数)* | 默认编译，无控制台窗口 | `build\bin\LVGL_Windows_Demo.exe` |
+| `console` | 调试模式，显示 printf 输出 | `build\bin\LVGL_Windows_Demo.exe` |
+| `noconsole` | 明确指定无控制台模式 | `build\bin\LVGL_Windows_Demo.exe` |
+| `pack` | 编译后打包成单文件 | `build\bin\LVGL_Windows_Demo_Noconsole.exe` (单文件版本) |
+| `console pack` | 调试模式 + 打包 | 两个版本都生成 |
+
+#### 输出文件对比
+
+- **`LVGL_Windows_Demo.exe`** (1.3 MB)
+  - 普通构建输出
+  - 所有 printf 输出已启用（用于调试）
+  
+- **`LVGL_Windows_Demo_Noconsole.exe`** (1.3 MB) - 使用 `pack` 参数生成
+  - 单文件打包版本
+  - 内嵌主程序并自动提取运行
+  - 使用 `DETACHED_PROCESS` 确保无控制台窗口
+  - **推荐用于最终发布**
+
+### 运行程序
+
+```batch
+# 方式1: 使用运行脚本
 run.bat
+
+# 方式2: 直接运行（调试版本可能显示控制台）
+.\build\bin\LVGL_Windows_Demo.exe
+
+# 方式3: 运行打包版本（无控制台，推荐）
+.\build\bin\LVGL_Windows_Demo_Noconsole.exe
 ```
 
 ### 方法二：手动构建
@@ -127,10 +168,41 @@ start build\LVGL_Windows_Demo.sln
 
 ## 🎮 使用说明
 
+### 调试与发布
+
+#### 开发调试模式
+
+```batch
+# 使用 console 模式查看调试输出
+build_ninja.bat console
+
+# 运行后可以看到以下调试信息：
+# ✓ LVGL initialized
+# ✓ Display initialized (800x600)
+# ✓ Input devices initialized (mouse + keyboard)
+# ✓ HAL initialization complete
+# Creating UI elements...
+# Keyboard event: key=0x41 ('A'), state=1
+# ...
+```
+
+#### 发布部署模式
+
+```batch
+# 生成单文件无控制台版本
+build_ninja.bat pack
+
+# 输出文件：build\bin\LVGL_Windows_Demo_Noconsole.exe
+# 特点：
+# - 单个 exe 文件，约 1.3 MB
+# - 无控制台窗口
+# - 自动提取和清理
+# - 适合最终用户使用
+```
+
 ### 键盘操作
 
 - **Tab** - 在输入框之间切换焦点
-- **Ctrl+A** - 全选文本
 - **Ctrl+C** - 复制选中文本
 - **Ctrl+V** - 粘贴文本
 - **Enter** - 确认输入
@@ -190,6 +262,12 @@ start build\LVGL_Windows_Demo.sln
 - **标题栏** - 独立的标题栏组件
 - **设置面板** - 可扩展的设置界面
 
+#### 4. 调试与打包机制
+
+- **printf 调试输出** - 所有模块都包含 printf 调试信息（已启用）
+- **单文件打包** - 使用资源嵌入技术，将主程序打包成单个可执行文件
+- **控制台隐藏** - 打包版本使用 `DETACHED_PROCESS` 标志确保无控制台窗口
+
 ## 🔧 开发亮点
 
 ### 1. OpenGL 集成
@@ -224,6 +302,37 @@ GraphicsPath path;
 graphics.FillPath(&brush, &path);
 ```
 
+### 4. 单文件打包技术
+
+```c
+// launcher_packed.c - 资源嵌入启动器
+// 1. 从资源加载嵌入的主程序
+HRSRC hRes = FindResourceA(hInstance, MAKEINTRESOURCEA(IDR_MAIN_EXE), RT_RCDATA);
+void* pData = LockResource(LoadResource(hInstance, hRes));
+
+// 2. 提取到临时目录
+WriteFile(hFile, pData, dwSize, &written, NULL);
+
+// 3. 使用 DETACHED_PROCESS 启动
+CreateProcessA(exePath, NULL, NULL, NULL, FALSE, 
+               DETACHED_PROCESS | CREATE_NO_WINDOW, ...);
+
+// 4. 清理临时文件
+DeleteFileA(exePath);
+```
+
+### 5. 调试输出系统
+
+```c
+// 所有模块都包含 printf 调试输出
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
+// 使用示例
+DEBUG_PRINTF("✓ LVGL initialized\n");
+DEBUG_PRINTF("Creating UI elements...\n");
+DEBUG_PRINTF("Keyboard event: key=0x%X\n", key);
+```
+
 ## 🐛 已知问题修复
 
 ### 已修复的问题
@@ -232,12 +341,13 @@ graphics.FillPath(&brush, &path);
 - ✅ **窗口恢复闪烁** - 禁用 WM_PAINT 背景绘制，添加 WM_ERASEBKGND 处理
 - ✅ **滑块无法拖动** - 修复 WM_MOUSEMOVE 消息中的按钮状态检测
 - ✅ **卡片内容滚动** - 禁用卡片的 SCROLLABLE 标志
+- ✅ **控制台窗口问题** - 实现单文件打包方案，使用 DETACHED_PROCESS 彻底隐藏控制台
+- ✅ **圆角窗口锯齿** - 集成 DWM API (Windows 11) 和 GDI+ (Windows 7/8/10) 实现平滑圆角
 
 ### 待优化问题
 
 - ⚠️ 最小化后可能需要点击任务栏图标恢复
 - ⚠️ 高 DPI 下某些 UI 元素可能需要微调
-- ⚠️ GDI+ 圆角在某些显卡上可能有兼容性问题
 
 ## 🚧 开发计划
 
@@ -246,8 +356,20 @@ graphics.FillPath(&brush, &path);
 - [ ] 优化渲染性能
 - [ ] 添加主题切换功能
 - [ ] 完善文档和示例代码
+- [x] 实现单文件打包功能
+- [x] 解决控制台窗口问题
+- [x] 实现平滑圆角窗口
 
 ## 📝 更新日志
+
+### v1.1.0 (2025-10-27)
+
+- ✨ 新增单文件打包功能（`build_ninja.bat pack`）
+- ✨ 启用所有模块的 printf 调试输出
+- ✨ 实现 DWM + GDI+ 平滑圆角窗口
+- 🐛 修复 MinGW 控制台窗口问题
+- 🐛 优化窗口拖动区域配置
+- 📝 完善构建脚本和文档
 
 ### v1.0.0 (2025-10-27)
 

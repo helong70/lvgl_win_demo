@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /* Static state */
 static lv_group_t * s_keyboard_group = NULL;
 
@@ -232,7 +235,7 @@ static void create_demo_content(lv_obj_t * content)
     settings_init();
     settings_create_button(content);
 
-    printf("Main container demo content created with new modern layout\n");
+    DEBUG_PRINTF("Main container demo content created with new modern layout\n");
 }
 
 static void btn_event_cb(lv_event_t * e)
@@ -246,11 +249,11 @@ static void btn_event_cb(lv_event_t * e)
     if (clicked) {
         lv_label_set_text(label, "Clicked!");
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x4CAF50), 0);
-        printf("*** BUTTON CLICKED - UI INTERACTION WORKS! ***\n");
+        DEBUG_PRINTF("*** BUTTON CLICKED - UI INTERACTION WORKS! ***\n");
     } else {
         lv_label_set_text(label, "Click Me!");
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x2196F3), 0);
-        printf("*** BUTTON RESET ***\n");
+        DEBUG_PRINTF("*** BUTTON RESET ***\n");
     }
 
     lv_obj_invalidate(btn);
@@ -271,7 +274,7 @@ static void slider_event_cb(lv_event_t * e)
     
     lv_obj_invalidate(slider);
     lv_obj_invalidate(lv_obj_get_parent(slider));
-    printf("Slider changed: %d\n", (int)v);
+    DEBUG_PRINTF("Slider changed: %d\n", (int)v);
 }
 
 static void dropdown_event_cb(lv_event_t * e)
@@ -282,7 +285,7 @@ static void dropdown_event_cb(lv_event_t * e)
     char option_text[32];
     lv_dropdown_get_selected_str(dropdown, option_text, sizeof(option_text));
 
-    printf("Dropdown selection changed: Index=%d, Text='%s'\n", selected, option_text);
+    DEBUG_PRINTF("Dropdown selection changed: Index=%d, Text='%s'\n", selected, option_text);
 
     lv_obj_invalidate(dropdown);
 }
@@ -295,17 +298,17 @@ static void textarea_event_cb(lv_event_t * e)
     if (code == LV_EVENT_KEY) {
         uint32_t key = lv_indev_get_key(lv_indev_get_act());
         if (key == LV_KEY_CTRL_A) {
-            printf("Executing select all in textarea\n");
+            DEBUG_PRINTF("Executing select all in textarea\n");
             const char * text = lv_textarea_get_text(textarea);
             if (text && strlen(text) > 0) {
                 lv_textarea_set_cursor_pos(textarea, 0);
                 uint32_t text_len = strlen(text);
                 lv_textarea_set_cursor_pos(textarea, text_len);
-                printf("Selected all text in textarea: '%s' (length: %d)\n", text, text_len);
+                DEBUG_PRINTF("Selected all text in textarea: '%s' (length: %d)\n", text, text_len);
             }
             return;
         } else if (key == LV_KEY_ESC) {
-            printf("ESC key pressed\n");
+            DEBUG_PRINTF("ESC key pressed\n");
             return;
         }
     }
@@ -324,21 +327,21 @@ static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
 {
     switch (code) {
         case LV_EVENT_CLICKED:
-            printf("Textarea clicked - ready for input\n");
+            DEBUG_PRINTF("Textarea clicked - ready for input\n");
             break;
         case LV_EVENT_FOCUSED:
-            printf("Textarea focused\n");
+            DEBUG_PRINTF("Textarea focused\n");
             lv_obj_set_style_border_color(textarea, lv_color_hex(0x2196F3), 0);
             break;
         case LV_EVENT_DEFOCUSED:
-            printf("Textarea defocused\n");
+            DEBUG_PRINTF("Textarea defocused\n");
             lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
             break;
         case LV_EVENT_VALUE_CHANGED: {
             const char * text = lv_textarea_get_text(textarea);
-            printf("Textarea content changed: '%s'\n", text);
+            DEBUG_PRINTF("Textarea content changed: '%s'\n", text);
             if (strlen(text) > 100) {
-                printf("Text too long, truncating...\n");
+                DEBUG_PRINTF("Text too long, truncating...\n");
                 char truncated[101];
                 strncpy(truncated, text, 100);
                 truncated[100] = '\0';
@@ -348,7 +351,7 @@ static void textarea_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
         }
         case LV_EVENT_READY: {
             const char * text = lv_textarea_get_text(textarea);
-            printf("Textarea ready (Enter pressed): '%s'\n", text);
+            DEBUG_PRINTF("Textarea ready (Enter pressed): '%s'\n", text);
             break;
         }
         default:
@@ -360,23 +363,23 @@ static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
 {
     switch (code) {
         case LV_EVENT_CLICKED:
-            printf("Password field clicked - ready for input\n");
+            DEBUG_PRINTF("Password field clicked - ready for input\n");
             break;
         case LV_EVENT_FOCUSED:
-            printf("Password field focused\n");
+            DEBUG_PRINTF("Password field focused\n");
             lv_obj_set_style_border_color(textarea, lv_color_hex(0xFF9800), 0);
             lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF3E0), 0);
             break;
         case LV_EVENT_DEFOCUSED:
-            printf("Password field defocused\n");
+            DEBUG_PRINTF("Password field defocused\n");
             lv_obj_set_style_border_color(textarea, lv_color_hex(0xCCCCCC), 0);
             lv_obj_set_style_bg_color(textarea, lv_color_hex(0xFFF8E1), 0);
             break;
         case LV_EVENT_VALUE_CHANGED: {
             const char * text = lv_textarea_get_text(textarea);
-            printf("Password field content changed (length: %d)\n", (int)strlen(text));
+            DEBUG_PRINTF("Password field content changed (length: %d)\n", (int)strlen(text));
             if (strlen(text) > 20) {
-                printf("Password too long, truncating to 20 characters...\n");
+                DEBUG_PRINTF("Password too long, truncating to 20 characters...\n");
                 char truncated[21];
                 strncpy(truncated, text, 20);
                 truncated[20] = '\0';
@@ -386,10 +389,10 @@ static void textarea2_custom_handler(lv_obj_t * textarea, lv_event_code_t code)
         }
         case LV_EVENT_READY: {
             const char * text = lv_textarea_get_text(textarea);
-            printf("Password field ready (Enter pressed, length: %d)\n", (int)strlen(text));
-            printf("=== Form Submission Simulation ===\n");
-            printf("Password: [HIDDEN] (length: %d)\n", (int)strlen(text));
-            printf("=== End Submission ===\n");
+            DEBUG_PRINTF("Password field ready (Enter pressed, length: %d)\n", (int)strlen(text));
+            DEBUG_PRINTF("=== Form Submission Simulation ===\n");
+            DEBUG_PRINTF("Password: [HIDDEN] (length: %d)\n", (int)strlen(text));
+            DEBUG_PRINTF("=== End Submission ===\n");
             break;
         }
         default:

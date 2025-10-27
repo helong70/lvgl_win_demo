@@ -9,6 +9,9 @@
 #include <windows.h>
 #include <stdio.h>
 
+/* Conditional printf for console mode only */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /* Access platform state for UI dimensions */
 #define g_width (*win32_get_width_ptr())
 #define g_height (*win32_get_height_ptr())
@@ -25,14 +28,32 @@ static void on_resize_event(int width, int height);
  *   MAIN
  ***********************/
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifndef ENABLE_CONSOLE_OUTPUT
+/* GUI mode: Use WinMain entry point (no console window) */
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+{
+    (void)hInstance;
+    (void)hPrevInstance;
+    (void)lpCmdLine;
+    (void)nCmdShow;
+    
+    /* Explicitly free any console that may have been allocated */
+    FreeConsole();
+#else
+/* Console mode: Use standard main entry point (with console window) */
 int main(void)
 {
+#endif
     lv_display_t * display;
     lv_indev_t * indev_keyboard;
     
     /* Initialize LVGL */
     lv_init();
-    printf("✓ LVGL initialized\n");
+    DEBUG_PRINTF("✓ LVGL initialized\n");
 
     /* Initialize the HAL (display, input devices, platform) */
     lv_hal_init();
@@ -51,13 +72,13 @@ int main(void)
     /* Force initial refresh */
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(display);
-    printf("✓ Initial UI refresh completed\n");
+    DEBUG_PRINTF("✓ Initial UI refresh completed\n");
 
-    printf("\n*** LVGL Windows Demo Started ***\n");
-    printf("Close window to exit.\n\n");
+    DEBUG_PRINTF("\n*** LVGL Windows Demo Started ***\n");
+    DEBUG_PRINTF("Close window to exit.\n\n");
 
     /* Main event loop */
-    printf("Entering Windows message loop (OpenGL).\n");
+    DEBUG_PRINTF("Entering Windows message loop (OpenGL).\n");
     bool running = true;
     while (running) {
         /* Process Windows messages */
@@ -80,14 +101,18 @@ int main(void)
     return 0;
 }
 
+#ifdef __cplusplus
+}
+#endif
+
 
 static void ui_init(void)
 {
-    printf("Creating UI elements...\n");
+    DEBUG_PRINTF("Creating UI elements...\n");
 
     /* Get the active screen */
     lv_obj_t * screen = lv_screen_active();
-    printf("✓ Active screen obtained: %p\n", screen);
+    DEBUG_PRINTF("✓ Active screen obtained: %p\n", screen);
 
     /* Set background */
     lv_obj_set_style_bg_color(screen, lv_color_hex(0xE8E8E8), 0);

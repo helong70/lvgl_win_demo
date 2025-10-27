@@ -1,0 +1,6 @@
+#include <windows.h>
+
+/* Define resource - embedded executable */
+#define IDR_MAIN_EXE 101
+IDR_MAIN_EXE RCDATA "LVGL_Windows_Demo_temp.exe"
+

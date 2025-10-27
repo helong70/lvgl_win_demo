@@ -6,6 +6,9 @@
 #include <windows.h>
 #include <GL/gl.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /***********************
  *   STATIC VARIABLES
  ***********************/
@@ -38,7 +41,7 @@ lv_display_t * lv_hal_disp_init(void)
     /* Create display */
     display = lv_display_create(LV_HAL_DISP_WIDTH, LV_HAL_DISP_HEIGHT);
     if (!display) {
-        printf("ERROR: Failed to create display\n");
+        DEBUG_PRINTF("ERROR: Failed to create display\n");
         return NULL;
     }
     
@@ -46,7 +49,7 @@ lv_display_t * lv_hal_disp_init(void)
     lv_display_set_buffers(display, buf1, buf2, sizeof(buf1), LV_DISPLAY_RENDER_MODE_PARTIAL);
     lv_display_set_flush_cb(display, display_flush_cb);
     
-    printf("✓ Display initialized (%dx%d)\n", LV_HAL_DISP_WIDTH, LV_HAL_DISP_HEIGHT);
+    DEBUG_PRINTF("✓ Display initialized (%dx%d)\n", LV_HAL_DISP_WIDTH, LV_HAL_DISP_HEIGHT);
     
     return display;
 }

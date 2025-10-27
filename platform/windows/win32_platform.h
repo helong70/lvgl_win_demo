@@ -11,6 +11,15 @@
 #endif
 #include <GL/gl.h>
 
+/* Include DWM for rounded corners (Windows 11+) */
+#include <dwmapi.h>
+/* Note: DWM_WINDOW_CORNER_PREFERENCE and DWMWA_WINDOW_CORNER_PREFERENCE 
+ * are already defined in newer MinGW dwmapi.h headers */
+
+/* Window corner radius configuration (in pixels) */
+#define WIN32_CORNER_RADIUS 50    /* Used for GDI+ smooth rounded corners (Windows 7/8/10) */
+#define WIN32_CORNER_RADIUS_FALLBACK 50  /* Used for CreateRoundRectRgn final fallback */
+
 #ifdef __cplusplus
 extern "C" {
 #endif

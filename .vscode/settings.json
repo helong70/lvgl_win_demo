@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "win32_platform.h": "c",
+        "lv_hal.h": "c"
+    }
+}

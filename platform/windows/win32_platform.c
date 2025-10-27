@@ -1,6 +1,7 @@
 #include "win32_platform.h"
 #include "ui/custom_keys.h"
 #include "ui/maincontainer.h"
+#include "ui/titlebar.h"  /* Include for TITLEBAR_HEIGHT and TITLEBAR_DRAG_EXCLUDE_RIGHT */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,9 @@
 #include <GL/gl.h>
 #include <gdiplus.h>
 #include "lvgl/lvgl.h"
+
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
 
 using namespace Gdiplus;
 
@@ -74,7 +78,7 @@ void win32_init_gdiplus(void)
 {
     GdiplusStartupInput startup_input;
     GdiplusStartup(&s_gdiplus_token, &startup_input, NULL);
-    printf("GDI+ initialized\n");
+    DEBUG_PRINTF("GDI+ initialized\n");
 }
 
 void win32_cleanup_gdiplus(void)
@@ -82,8 +86,41 @@ void win32_cleanup_gdiplus(void)
     if (s_gdiplus_token) {
         GdiplusShutdown(s_gdiplus_token);
         s_gdiplus_token = 0;
-        printf("GDI+ cleaned up\n");
+        DEBUG_PRINTF("GDI+ cleaned up\n");
     }
+}
+
+/* === Rounded Region Creation (GDI+ for smooth edges) === */
+
+static HRGN create_rounded_region_gdiplus(int width, int height, int radius)
+{
+    /* Use GDI+ GraphicsPath for smooth anti-aliased rounded rectangle */
+    GraphicsPath* path = new GraphicsPath();
+    
+    /* Create rounded rectangle path */
+    path->AddArc(0, 0, radius * 2, radius * 2, 180, 90);                    /* Top-left */
+    path->AddLine(radius, 0, width - radius, 0);                            /* Top edge */
+    path->AddArc(width - radius * 2, 0, radius * 2, radius * 2, 270, 90);  /* Top-right */
+    path->AddLine(width, radius, width, height - radius);                   /* Right edge */
+    path->AddArc(width - radius * 2, height - radius * 2, radius * 2, radius * 2, 0, 90);  /* Bottom-right */
+    path->AddLine(width - radius, height, radius, height);                  /* Bottom edge */
+    path->AddArc(0, height - radius * 2, radius * 2, radius * 2, 90, 90);  /* Bottom-left */
+    path->CloseFigure();                                                     /* Left edge */
+    
+    /* Convert GraphicsPath to GDI Region */
+    Region* region = new Region(path);
+    
+    /* Create temporary Graphics object from window DC for GetHRGN */
+    HDC hdc = GetDC(s_main_hwnd);
+    Graphics* graphics = new Graphics(hdc);
+    HRGN hrgn = region->GetHRGN(graphics);
+    
+    delete graphics;
+    ReleaseDC(s_main_hwnd, hdc);
+    delete region;
+    delete path;
+    
+    return hrgn;
 }
 
 /* === Clipboard Functions === */
@@ -95,17 +132,17 @@ bool win32_clipboard_copy(const char * text)
     }
 
     if (!s_main_hwnd) {
-        printf("Clipboard copy failed: window handle not set\n");
+        DEBUG_PRINTF("Clipboard copy failed: window handle not set\n");
         return false;
     }
 
     if (!OpenClipboard(s_main_hwnd)) {
-        printf("Failed to open clipboard for copy\n");
+        DEBUG_PRINTF("Failed to open clipboard for copy\n");
         return false;
     }
 
     if (!EmptyClipboard()) {
-        printf("Failed to empty clipboard\n");
+        DEBUG_PRINTF("Failed to empty clipboard\n");
         CloseClipboard();
         return false;
     }
@@ -113,14 +150,14 @@ bool win32_clipboard_copy(const char * text)
     size_t text_len = strlen(text) + 1;
     HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, text_len);
     if (!hGlobal) {
-        printf("Failed to allocate memory for clipboard\n");
+        DEBUG_PRINTF("Failed to allocate memory for clipboard\n");
         CloseClipboard();
         return false;
     }
 
     char * buffer = (char *)GlobalLock(hGlobal);
     if (!buffer) {
-        printf("Failed to lock clipboard memory\n");
+        DEBUG_PRINTF("Failed to lock clipboard memory\n");
         GlobalFree(hGlobal);
         CloseClipboard();
         return false;
@@ -130,39 +167,39 @@ bool win32_clipboard_copy(const char * text)
     GlobalUnlock(hGlobal);
 
     if (!SetClipboardData(CF_TEXT, hGlobal)) {
-        printf("Failed to set clipboard data\n");
+        DEBUG_PRINTF("Failed to set clipboard data\n");
         GlobalFree(hGlobal);
         CloseClipboard();
         return false;
     }
 
     CloseClipboard();
-    printf("Text copied to clipboard: '%s'\n", text);
+    DEBUG_PRINTF("Text copied to clipboard: '%s'\n", text);
     return true;
 }
 
 char * win32_clipboard_paste(void)
 {
     if (!s_main_hwnd) {
-        printf("Clipboard paste failed: window handle not set\n");
+        DEBUG_PRINTF("Clipboard paste failed: window handle not set\n");
         return NULL;
     }
 
     if (!OpenClipboard(s_main_hwnd)) {
-        printf("Failed to open clipboard for paste\n");
+        DEBUG_PRINTF("Failed to open clipboard for paste\n");
         return NULL;
     }
 
     HANDLE hData = GetClipboardData(CF_TEXT);
     if (!hData) {
-        printf("No text data in clipboard\n");
+        DEBUG_PRINTF("No text data in clipboard\n");
         CloseClipboard();
         return NULL;
     }
 
     char * source = (char *)GlobalLock(hData);
     if (!source) {
-        printf("Failed to lock clipboard data\n");
+        DEBUG_PRINTF("Failed to lock clipboard data\n");
         CloseClipboard();
         return NULL;
     }
@@ -170,7 +207,7 @@ char * win32_clipboard_paste(void)
     size_t length = strlen(source) + 1;
     char * result = (char *)malloc(length);
     if (!result) {
-        printf("Failed to allocate memory for pasted text\n");
+        DEBUG_PRINTF("Failed to allocate memory for pasted text\n");
         GlobalUnlock(hData);
         CloseClipboard();
         return NULL;
@@ -180,7 +217,7 @@ char * win32_clipboard_paste(void)
     GlobalUnlock(hData);
     CloseClipboard();
 
-    printf("Text pasted from clipboard: '%s'\n", result);
+    DEBUG_PRINTF("Text pasted from clipboard: '%s'\n", result);
     return result;
 }
 
@@ -226,7 +263,7 @@ static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD p
         interval = min_interval;
     }
     
-    printf("Long press acceleration: key=0x%X, repeat=%d, duration=%d, interval=%d\n", 
+    DEBUG_PRINTF("Long press acceleration: key=0x%X, repeat=%d, duration=%d, interval=%d\n", 
            key, repeat_count, press_duration, interval);
     
     return interval;
@@ -236,7 +273,7 @@ static uint32_t get_repeat_interval(uint32_t key, uint32_t repeat_count, DWORD p
 static void reset_long_press_state(void)
 {
     if (s_long_press_key != 0) {
-        printf("Resetting long press state for key 0x%X (had %d repeats)\n", 
+        DEBUG_PRINTF("Resetting long press state for key 0x%X (had %d repeats)\n", 
                s_long_press_key, s_long_press_repeat_count);
     }
     
@@ -285,12 +322,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             ScreenToClient(hwnd, &pt);
             
-            /* Check if cursor is in title bar area (top 36 pixels) */
-            if (pt.y >= 0 && pt.y <= 36) {
-                /* Check if it's not over the close button area (right 70 pixels to accommodate 48px button + 22px offset) */
+            /* Check if cursor is in title bar area (configurable via TITLEBAR_HEIGHT) */
+            if (pt.y >= 0 && pt.y <= TITLEBAR_HEIGHT) {
+                /* Check if it's not over button area (configurable via TITLEBAR_DRAG_EXCLUDE_RIGHT) */
                 RECT rc;
                 GetClientRect(hwnd, &rc);
-                if (pt.x < rc.right - 180) {
+                if (pt.x < rc.right - TITLEBAR_DRAG_EXCLUDE_RIGHT) {
                     return HTCAPTION; /* This enables native window dragging */
                 }
             }
@@ -377,7 +414,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 return 0; /* Skip this key event */
             }
             
-            printf("Key pressed: 0x%X (%d) [repeat=%d, duration=%dms]\n", 
+            DEBUG_PRINTF("Key pressed: 0x%X (%d) [repeat=%d, duration=%dms]\n", 
                    key, key, s_long_press_repeat_count, current_time - s_long_press_start_time);
             
             /* Check NumLock state for numpad handling */
@@ -391,13 +428,13 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             
             /* Handle Ctrl+A for select all */
             if (ctrl_pressed && key == 'A') {
-                printf("Ctrl+A detected - Select All\n");
+                DEBUG_PRINTF("Ctrl+A detected - Select All\n");
                 lv_key = LV_KEY_CTRL_A; /* Use our custom key code for Ctrl+A */
                 /* We'll handle the actual select all in the textarea event handler */
             }
             /* Handle Ctrl+C for copy */
             else if (ctrl_pressed && key == 'C') {
-                printf("Ctrl+C detected - Copy\n");
+                DEBUG_PRINTF("Ctrl+C detected - Copy\n");
                 /* Get the currently focused textarea */
                 lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
                 lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
@@ -406,16 +443,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     if (text && strlen(text) > 0) {
                         win32_clipboard_copy(text);
                     } else {
-                        printf("No text to copy\n");
+                        DEBUG_PRINTF("No text to copy\n");
                     }
                 } else {
-                    printf("No active textarea for copy\n");
+                    DEBUG_PRINTF("No active textarea for copy\n");
                 }
                 return 0; /* Don't forward to LVGL */
             }
             /* Handle Ctrl+V for paste */
             else if (ctrl_pressed && key == 'V') {
-                printf("Ctrl+V detected - Paste\n");
+                DEBUG_PRINTF("Ctrl+V detected - Paste\n");
                 /* Get the currently focused textarea */
                 lv_group_t * keyboard_group = maincontainer_get_keyboard_group();
                 lv_obj_t * active_ta = keyboard_group ? lv_group_get_focused(keyboard_group) : NULL;
@@ -427,7 +464,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         free(pasted_text);
                     }
                 } else {
-                    printf("No active textarea for paste\n");
+                    DEBUG_PRINTF("No active textarea for paste\n");
                 }
                 return 0; /* Don't forward to LVGL */
             } else {
@@ -440,7 +477,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 case VK_DELETE:   lv_key = LV_KEY_DEL; break;
                 case VK_BACK:     
                     lv_key = LV_KEY_BACKSPACE; 
-                    printf("Backspace key detected, mapping to LV_KEY_BACKSPACE (0x%X)\n", LV_KEY_BACKSPACE);
+                    DEBUG_PRINTF("Backspace key detected, mapping to LV_KEY_BACKSPACE (0x%X)\n", LV_KEY_BACKSPACE);
                     break;
                 case VK_RETURN:   lv_key = LV_KEY_ENTER; break;
                 case VK_TAB:      lv_key = LV_KEY_NEXT; break;
@@ -569,7 +606,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                         break;
                 }
                 
-                printf("WM_KEYDOWN processing: VK=0x%X (%s), lv_key=0x%X ('%c'), NumLock=%s\n", 
+                DEBUG_PRINTF("WM_KEYDOWN processing: VK=0x%X (%s), lv_key=0x%X ('%c'), NumLock=%s\n", 
                        key, key_name[0] ? key_name : "Unknown", lv_key, 
                        (lv_key >= 32 && lv_key <= 126) ? (char)lv_key : '?', 
                        numlock_on ? "ON" : "OFF");
@@ -578,7 +615,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     s_keyboard_callback(lv_key, true);
                 }
             } else {
-                printf("WM_KEYDOWN ignored: VK=0x%X, NumLock=%s\n", key, numlock_on ? "ON" : "OFF");
+                DEBUG_PRINTF("WM_KEYDOWN ignored: VK=0x%X, NumLock=%s\n", key, numlock_on ? "ON" : "OFF");
             }
             return 0;
         }
@@ -613,7 +650,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (!already_handled && ((character >= 32 && character <= 126) || (character >= 160 && character <= 255))) {
                 /* Anti-bounce for character input */
                 if (current_time - s_last_key_time >= 2) { /* 2ms debounce for chars - very responsive */
-                    printf("WM_CHAR processing character: '%c' (0x%X)\n", 
+                    DEBUG_PRINTF("WM_CHAR processing character: '%c' (0x%X)\n", 
                            (character >= 32 && character <= 126) ? (char)character : '?', character);
                     /* Notify via callback if registered */
                     if (s_keyboard_callback) {
@@ -622,7 +659,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                     s_last_key_time = current_time;
                 }
             } else {
-                printf("WM_CHAR ignored%s: '%c' (0x%X)\n", 
+                DEBUG_PRINTF("WM_CHAR ignored%s: '%c' (0x%X)\n", 
                        already_handled ? " (already handled)" : " (non-printable)", 
                        (character >= 32 && character <= 126) ? (char)character : '?', character);
             }
@@ -664,7 +701,7 @@ bool win32_init_window(int width, int height, float ui_scale)
     wc.lpszClassName = "lvgl_opengl_window";
 
     if (!RegisterClass(&wc)) {
-        printf("RegisterClass failed\n");
+        DEBUG_PRINTF("RegisterClass failed\n");
         return false;
     }
 
@@ -683,15 +720,52 @@ bool win32_init_window(int width, int height, float ui_scale)
                          NULL, NULL, hInstance, NULL);
 
     if (!s_main_hwnd) {
-        printf("CreateWindow failed\n");
+        DEBUG_PRINTF("CreateWindow failed\n");
         return false;
     }
 
-    /* Set rounded corners */
-    HRGN rgn = CreateRoundRectRgn(0, 0, win_w, win_h, 50, 50);
-    SetWindowRgn(s_main_hwnd, rgn, TRUE);
-    DeleteObject(rgn);
+    /* 【实现位置5】设置圆角窗口 - 使用 DWM API (Windows 11) 或 GDI+ 降级方案 */
+    
+    /* Force custom radius: Skip DWM and use GDI+ for full control over corner radius */
+    #if 0  /* Set to 0 to re-enable Windows 11 DWM native rounded corners */
+    DEBUG_PRINTF("Using GDI+ custom rounded corners (radius: %d pixels)\n", WIN32_CORNER_RADIUS);
+    HRGN rgn = create_rounded_region_gdiplus(win_w, win_h, WIN32_CORNER_RADIUS);
+    if (rgn) {
+        SetWindowRgn(s_main_hwnd, rgn, TRUE);
+        /* Note: DeleteObject not called - SetWindowRgn takes ownership */
+    } else {
+        /* Final fallback to simple CreateRoundRectRgn if GDI+ fails */
+        DEBUG_PRINTF("GDI+ region creation failed, using CreateRoundRectRgn\n");
+        rgn = CreateRoundRectRgn(0, 0, win_w, win_h, WIN32_CORNER_RADIUS_FALLBACK, WIN32_CORNER_RADIUS_FALLBACK);
+        SetWindowRgn(s_main_hwnd, rgn, TRUE);
+        DeleteObject(rgn);
+    }
+    #else
+    /* Try Windows 11 DWM rounded corners first (system default, no custom radius) */
+    DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+    HRESULT hr = DwmSetWindowAttribute(s_main_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, 
+                                       &corner, sizeof(corner));
+    
+    if (FAILED(hr)) {
+        /* Fallback to GDI+ smooth rounded region for Windows 7/8/10 */
+        DEBUG_PRINTF("DWM rounded corners not supported (likely Windows 10 or earlier), using GDI+ fallback\n");
+        HRGN rgn = create_rounded_region_gdiplus(win_w, win_h, WIN32_CORNER_RADIUS);
+        if (rgn) {
+            SetWindowRgn(s_main_hwnd, rgn, TRUE);
+            /* Note: DeleteObject not called - SetWindowRgn takes ownership */
+        } else {
+            /* Final fallback to simple CreateRoundRectRgn if GDI+ fails */
+            DEBUG_PRINTF("GDI+ region creation failed, using CreateRoundRectRgn\n");
+            rgn = CreateRoundRectRgn(0, 0, win_w, win_h, WIN32_CORNER_RADIUS_FALLBACK, WIN32_CORNER_RADIUS_FALLBACK);
+            SetWindowRgn(s_main_hwnd, rgn, TRUE);
+            DeleteObject(rgn);
+        }
+    } else {
+        DEBUG_PRINTF("DWM rounded corners applied successfully (Windows 11)\n");
+    }
+    #endif
 
+    /* 【实现位置6】设置分层窗口属性(透明度等) */
     /* Set layered window attributes */
     SetLayeredWindowAttributes(s_main_hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY | LWA_ALPHA);
 
@@ -708,13 +782,13 @@ bool win32_init_window(int width, int height, float ui_scale)
 
     int pf = ChoosePixelFormat(s_hdc, &pfd);
     if (!pf || !SetPixelFormat(s_hdc, pf, &pfd)) {
-        printf("ChoosePixelFormat/SetPixelFormat failed\n");
+        DEBUG_PRINTF("ChoosePixelFormat/SetPixelFormat failed\n");
         return false;
     }
 
     s_hglrc = wglCreateContext(s_hdc);
     if (!s_hglrc || !wglMakeCurrent(s_hdc, s_hglrc)) {
-        printf("wglCreateContext/wglMakeCurrent failed\n");
+        DEBUG_PRINTF("wglCreateContext/wglMakeCurrent failed\n");
         return false;
     }
 
@@ -725,7 +799,7 @@ bool win32_init_window(int width, int height, float ui_scale)
 
     GLint samples = 0;
     glGetIntegerv(GL_SAMPLES, &samples);
-    printf("OpenGL initialized with %d samples\n", samples);
+    DEBUG_PRINTF("OpenGL initialized with %d samples\n", samples);
 
     ShowWindow(s_main_hwnd, SW_SHOW);
     UpdateWindow(s_main_hwnd);
@@ -757,7 +831,7 @@ void win32_cleanup_window(void)
         DestroyWindow(s_main_hwnd);
         s_main_hwnd = NULL;
     }
-    printf("Window cleaned up\n");
+    DEBUG_PRINTF("Window cleaned up\n");
 }
 
 bool win32_process_messages(void)

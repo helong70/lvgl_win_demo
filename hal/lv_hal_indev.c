@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /***********************
  *   STATIC VARIABLES
  ***********************/
@@ -55,7 +58,7 @@ void lv_hal_indev_init(lv_display_t * display)
     lv_indev_set_read_cb(indev_keyboard, keyboard_read_cb);
     lv_indev_set_display(indev_keyboard, display);
     
-    printf("✓ Input devices initialized (mouse + keyboard)\n");
+    DEBUG_PRINTF("✓ Input devices initialized (mouse + keyboard)\n");
 }
 
 lv_indev_t * lv_hal_indev_get_mouse(void)
@@ -79,7 +82,7 @@ void lv_hal_keyboard_queue_push(uint32_t key, lv_indev_state_t state)
     if (next_head == keyboard_queue_tail) {
         /* Queue is full, skip oldest event */
         keyboard_queue_tail = (keyboard_queue_tail + 1) % KEYBOARD_QUEUE_SIZE;
-        printf("Keyboard queue overflow, dropping oldest event\n");
+        DEBUG_PRINTF("Keyboard queue overflow, dropping oldest event\n");
     }
     
     /* Add new event */
@@ -89,7 +92,7 @@ void lv_hal_keyboard_queue_push(uint32_t key, lv_indev_state_t state)
     
     keyboard_queue_head = next_head;
     
-    printf("Keyboard event queued: key=0x%X, state=%d, queue_size=%d\n", 
+    DEBUG_PRINTF("Keyboard event queued: key=0x%X, state=%d, queue_size=%d\n", 
            key, state, (keyboard_queue_head - keyboard_queue_tail + KEYBOARD_QUEUE_SIZE) % KEYBOARD_QUEUE_SIZE);
 }
 
@@ -144,7 +147,7 @@ static void keyboard_read_cb(lv_indev_t * indev, lv_indev_data_t * data)
         if (keyboard_queue_pop(&next_event)) {
             current_keyboard_data = next_event;
             last_read_time = current_time;
-            printf("Processing keyboard event: key=0x%X ('%c'), state=%d\n", 
+            DEBUG_PRINTF("Processing keyboard event: key=0x%X ('%c'), state=%d\n", 
                    next_event.key, 
                    (next_event.key >= 32 && next_event.key <= 126) ? (char)next_event.key : '?',
                    next_event.state);

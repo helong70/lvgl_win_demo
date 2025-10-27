@@ -4,6 +4,9 @@
 #include <windows.h>
 #include <GL/gl.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /* Access platform OpenGL state */
 #define g_hdc (*win32_get_hdc_ptr())
 #define g_hglrc (*win32_get_hglrc_ptr())
@@ -22,7 +25,7 @@ void lv_hal_init(void)
     FILE* f;
     freopen_s(&f, "CONOUT$", "w", stdout);
     
-    printf("=== LVGL HAL Initialization ===\n");
+    DEBUG_PRINTF("=== LVGL HAL Initialization ===\n");
 
     /* Determine UI scale from system DPI */
     {
@@ -30,7 +33,7 @@ void lv_hal_init(void)
         int dpi = GetDeviceCaps(scr, LOGPIXELSX);
         ReleaseDC(NULL, scr);
         g_ui_scale = 1.0f; /* Force 1.0 scale for testing */
-        printf("System DPI=%d, UI scale=%.2f (forced to 1.0 for testing)\n", dpi, g_ui_scale);
+        DEBUG_PRINTF("System DPI=%d, UI scale=%.2f (forced to 1.0 for testing)\n", dpi, g_ui_scale);
     }
 
     /* Initialize GDI+ */
@@ -38,14 +41,14 @@ void lv_hal_init(void)
 
     /* Initialize window and OpenGL through platform module */
     if (!win32_init_window(g_width, g_height, g_ui_scale)) {
-        printf("ERROR: Failed to initialize OpenGL window\n");
+        DEBUG_PRINTF("ERROR: Failed to initialize OpenGL window\n");
         return;
     }
     
     /* Initialize display HAL first */
     display = lv_hal_disp_init();
     if (!display) {
-        printf("ERROR: Failed to initialize display HAL\n");
+        DEBUG_PRINTF("ERROR: Failed to initialize display HAL\n");
         return;
     }
     
@@ -60,7 +63,7 @@ void lv_hal_init(void)
     /* Initialize input devices HAL */
     lv_hal_indev_init(display);
     
-    printf("✓ HAL initialization complete\n");
+    DEBUG_PRINTF("✓ HAL initialization complete\n");
 }
 
 lv_display_t * lv_hal_get_display(void)

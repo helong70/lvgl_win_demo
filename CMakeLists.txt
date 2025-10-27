@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 
 project(LVGL_Windows_Demo)
 
+# ============================================================
+# Console Control: Set to ON to show console, OFF to hide it
+# ============================================================
+option(SHOW_CONSOLE "Show console window when running the application" OFF)
+
 # Enable C and C++ languages
 enable_language(C CXX)
 
@@ -55,10 +60,14 @@ set_source_files_properties(${PLATFORM_SOURCES} PROPERTIES LANGUAGE CXX)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # Create executable
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(SHOW_CONSOLE)
+    # Console mode: show terminal window with debug output
     add_executable(${PROJECT_NAME} ${MAIN_SOURCE} ${UI_SOURCES} ${HAL_SOURCES} ${PLATFORM_SOURCES})
+    message(STATUS "Building with CONSOLE window (for debugging)")
 else()
+    # GUI mode: no console window (clean application)
     add_executable(${PROJECT_NAME} WIN32 ${MAIN_SOURCE} ${UI_SOURCES} ${HAL_SOURCES} ${PLATFORM_SOURCES})
+    message(STATUS "Building WITHOUT console window (pure GUI)")
 endif()
 
 # Link libraries
@@ -69,16 +78,33 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE winmm
     PRIVATE opengl32
     PRIVATE gdiplus
+    PRIVATE dwmapi
 )
+
+# Set linker flags for console control (must be set AFTER target_link_libraries)
+if(NOT SHOW_CONSOLE)
+    # Force Windows GUI subsystem (no console window)
+    # Use -Wl,-e to specify WinMain as entry point and force GUI subsystem
+    target_link_options(${PROJECT_NAME} PRIVATE 
+        -Wl,--subsystem,windows:6.0
+        -Wl,-eWinMainCRTStartup
+    )
+endif()
 
 # Set executable properties
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-# For debug builds, use console subsystem
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+# Console subsystem control
+if(SHOW_CONSOLE)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE FALSE
     )
+    target_compile_definitions(${PROJECT_NAME} PRIVATE ENABLE_CONSOLE_OUTPUT)
+else()
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        WIN32_EXECUTABLE TRUE
+    )
+    # No ENABLE_CONSOLE_OUTPUT defined = GUI mode with WinMain
 endif()

@@ -2,6 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 /* Static variables for settings UI */
 static lv_obj_t * settings_dialog = NULL;
 static lv_obj_t * settings_bg = NULL;
@@ -34,7 +37,7 @@ void settings_init(void)
     settings_load_defaults();
     settings_initialized = true;
     
-    printf("Settings system initialized\n");
+    DEBUG_PRINTF("Settings system initialized\n");
 }
 
 void settings_load_defaults(void)
@@ -45,7 +48,7 @@ void settings_load_defaults(void)
     current_settings.transparency = 95;      /* Mostly opaque */
     current_settings.auto_save = true;       /* Auto-save enabled */
     
-    printf("Settings loaded with defaults\n");
+    DEBUG_PRINTF("Settings loaded with defaults\n");
 }
 
 lv_obj_t * settings_create_button(lv_obj_t * parent)
@@ -72,7 +75,7 @@ lv_obj_t * settings_create_button(lv_obj_t * parent)
     /* Add event handler */
     lv_obj_add_event_cb(btn, settings_button_event_cb, LV_EVENT_CLICKED, NULL);
     
-    printf("Settings button created\n");
+    DEBUG_PRINTF("Settings button created\n");
     return btn;
 }
 
@@ -81,7 +84,7 @@ static void settings_button_event_cb(lv_event_t * e)
     lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
     lv_obj_t * parent = lv_obj_get_parent(btn);  /* Use the button's parent (content container) */
     
-    printf("Settings button clicked\n");
+    DEBUG_PRINTF("Settings button clicked\n");
     settings_show_dialog(parent);
 }
 
@@ -96,7 +99,7 @@ void settings_show_dialog(lv_obj_t * parent)
     /* Get the parent's actual size */
     lv_coord_t parent_width = lv_obj_get_width(parent);
     lv_coord_t parent_height = lv_obj_get_height(parent);
-    printf("Parent size: %d x %d\n", parent_width, parent_height);
+    DEBUG_PRINTF("Parent size: %d x %d\n", parent_width, parent_height);
 
     
     /* Make background larger to ensure full coverage */
@@ -111,7 +114,7 @@ void settings_show_dialog(lv_obj_t * parent)
     lv_obj_set_style_outline_width(settings_bg, 0, 0);
     lv_obj_clear_flag(settings_bg, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(settings_bg, 0, 0);  /* No rounded corners */
-    printf("Background size set to: %d x %d at pos (%d, %d)\n", 
+    DEBUG_PRINTF("Background size set to: %d x %d at pos (%d, %d)\n", 
            lv_obj_get_width(settings_bg), lv_obj_get_height(settings_bg),
            lv_obj_get_x(settings_bg), lv_obj_get_y(settings_bg));
     
@@ -135,7 +138,7 @@ void settings_show_dialog(lv_obj_t * parent)
     /* Ensure normal scale (no animation for now) */
     lv_obj_set_style_transform_scale(settings_dialog, 256, 0);  /* Normal size (256 = 1.0x) */
     
-    printf("Settings dialog shown\n");
+    DEBUG_PRINTF("Settings dialog shown\n");
 }
 
 static void settings_create_dialog_content(lv_obj_t * dialog)
@@ -266,13 +269,13 @@ static void settings_create_dialog_content(lv_obj_t * dialog)
 
 static void settings_dialog_close_event_cb(lv_event_t * e)
 {
-    printf("Settings dialog close clicked\n");
+    DEBUG_PRINTF("Settings dialog close clicked\n");
     settings_hide_dialog();
 }
 
 static void settings_apply_event_cb(lv_event_t * e)
 {
-    printf("Settings apply clicked\n");
+    DEBUG_PRINTF("Settings apply clicked\n");
     
     /* Read values from UI controls */
     if (animation_slider) {
@@ -297,7 +300,7 @@ static void settings_apply_event_cb(lv_event_t * e)
 
 static void settings_reset_event_cb(lv_event_t * e)
 {
-    printf("Settings reset clicked\n");
+    DEBUG_PRINTF("Settings reset clicked\n");
     settings_reset_defaults();
     settings_hide_dialog();
 }
@@ -311,7 +314,7 @@ void settings_hide_dialog(void)
     /* Simple cleanup without animation for now */
     settings_animation_deleted_cb(NULL);
     
-    printf("Settings dialog hidden\n");
+    DEBUG_PRINTF("Settings dialog hidden\n");
 }
 
 bool settings_is_visible(void)
@@ -326,12 +329,12 @@ settings_config_t * settings_get_config(void)
 
 void settings_apply_changes(void)
 {
-    printf("Applying settings changes:\n");
-    printf("  Animation Speed: %d\n", current_settings.animation_speed);
-    printf("  Theme: %d\n", current_settings.theme_index);
-    printf("  Sound: %s\n", current_settings.sound_enabled ? "ON" : "OFF");
-    printf("  Transparency: %d%%\n", current_settings.transparency);
-    printf("  Auto-save: %s\n", current_settings.auto_save ? "ON" : "OFF");
+    DEBUG_PRINTF("Applying settings changes:\n");
+    DEBUG_PRINTF("  Animation Speed: %d\n", current_settings.animation_speed);
+    DEBUG_PRINTF("  Theme: %d\n", current_settings.theme_index);
+    DEBUG_PRINTF("  Sound: %s\n", current_settings.sound_enabled ? "ON" : "OFF");
+    DEBUG_PRINTF("  Transparency: %d%%\n", current_settings.transparency);
+    DEBUG_PRINTF("  Auto-save: %s\n", current_settings.auto_save ? "ON" : "OFF");
     
     /* Here you would implement actual setting changes */
     /* For example, applying themes, adjusting animation speeds, etc. */
@@ -340,7 +343,7 @@ void settings_apply_changes(void)
 void settings_reset_defaults(void)
 {
     settings_load_defaults();
-    printf("Settings reset to defaults\n");
+    DEBUG_PRINTF("Settings reset to defaults\n");
 }
 
 static void settings_animation_deleted_cb(lv_anim_t * a)
@@ -357,5 +360,5 @@ static void settings_animation_deleted_cb(lv_anim_t * a)
     transparency_slider = NULL;
     autosave_switch = NULL;
     
-    printf("Settings dialog cleanup completed\n");
+    DEBUG_PRINTF("Settings dialog cleanup completed\n");
 }

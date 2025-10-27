@@ -1,6 +1,9 @@
 #include "titlebar.h"
 #include <stdio.h>
 
+/* Conditional printf - only output in console mode */
+#define DEBUG_PRINTF(...) printf(__VA_ARGS__)
+
 #define USE_OPENGL 1
 #include <windows.h>
 
@@ -42,7 +45,7 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     /* Close button on the right of titlebar */
     lv_obj_t * close_btn = lv_btn_create(title_bar);
     lv_obj_set_size(close_btn, 48, 36);
-    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 22, 0);
+    lv_obj_align(close_btn, LV_ALIGN_RIGHT_MID, 22+5, 0);
     lv_obj_add_event_cb(close_btn, close_btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * cb_label = lv_label_create(close_btn);
     lv_label_set_text(cb_label, LV_SYMBOL_CLOSE);
@@ -55,7 +58,7 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     lv_obj_t * min_btn = lv_btn_create(title_bar);
     lv_obj_set_size(min_btn, 38, 36);
     lv_obj_set_style_bg_color(min_btn, lv_color_hex(0xAF7F00), 0);
-    lv_obj_align(min_btn, LV_ALIGN_RIGHT_MID, -26, 0);
+    lv_obj_align(min_btn, LV_ALIGN_RIGHT_MID, -26+5, 0);
     lv_obj_add_event_cb(min_btn, min_btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * min_label = lv_label_create(min_btn);
     lv_label_set_text(min_label, LV_SYMBOL_MINUS);
@@ -63,7 +66,7 @@ lv_obj_t * titlebar_create(lv_obj_t * parent, int width)
     lv_obj_set_style_radius(min_btn, 0, 0);
     lv_obj_set_style_shadow_width(min_btn, 0, 0);
 
-    printf("Titlebar created with dimensions: %dx%d\n", width + 6, TITLEBAR_HEIGHT + 2);
+    DEBUG_PRINTF("Titlebar created with dimensions: %dx%d\n", width + 6, TITLEBAR_HEIGHT + 2);
     return title_bar;
 }
 
@@ -71,7 +74,7 @@ void titlebar_set_title(lv_obj_t * titlebar, const char * title)
 {
     if (title_label && title) {
         lv_label_set_text(title_label, title);
-        printf("Titlebar title set to: %s\n", title);
+        DEBUG_PRINTF("Titlebar title set to: %s\n", title);
     }
 }
 
@@ -84,7 +87,7 @@ void titlebar_event_cb(lv_event_t * e)
     
     if (code == LV_EVENT_PRESSED) {
         /* Title bar was clicked - native dragging will handle movement */
-        printf("Title bar clicked\n");
+        DEBUG_PRINTF("Title bar clicked\n");
     }
 }
 
@@ -107,14 +110,14 @@ void close_btn_event_cb(lv_event_t * e)
     lv_anim_set_ready_cb(&anim, anim_ready_cb);
 
     lv_anim_start(&anim);
-    printf("Close button clicked - starting exit animation\n");
+    DEBUG_PRINTF("Close button clicked - starting exit animation\n");
 }
 
 void min_btn_event_cb(lv_event_t * e)
 {
     lv_obj_t * btn = (lv_obj_t*)lv_event_get_target(e);
 
-    printf("Minimize button clicked\n");
+    DEBUG_PRINTF("Minimize button clicked\n");
     
 #if USE_OPENGL
     HWND hwnd = get_main_window_handle();
@@ -124,7 +127,7 @@ void min_btn_event_cb(lv_event_t * e)
         
         /* Minimize window directly */
         ShowWindow(hwnd, SW_MINIMIZE);
-        printf("Window minimized\n");
+        DEBUG_PRINTF("Window minimized\n");
         
         /* Restore button color */
         lv_obj_set_style_bg_color(btn, lv_color_hex(0xAF7F00), 0);
